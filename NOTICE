@@ -1,0 +1,14 @@
+Form2Offer
+Copyright (c) 2026 Gaaiyun and Form2Offer contributors
+
+Form2Offer is an independently maintained project built from ideas and MIT-
+licensed code in these predecessor projects:
+
+- ResumeBridge by xiaocheng223
+  https://github.com/xiaocheng223/ResumeBridge
+- OpenJobAutofill by Br1an67
+  https://github.com/Br1an67/OpenJobAutofill
+
+The original MIT copyright and license notice are retained in LICENSE.
+Form2Offer keeps import compatibility with both predecessor backup formats so
+users can migrate local profiles without re-entering their data.

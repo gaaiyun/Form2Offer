@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible form-filling or extension problem
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include real resumes, API keys, cookies, identity numbers, or private page source.
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Edge 140 / Chrome 140
+    validations:
+      required: true
+  - type: input
+    id: site
+    attributes:
+      label: Site or ATS
+      placeholder: Moka, Beisen, Feishu Jobs, generic form
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Use fictional values and anonymized labels.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed personal data, credentials, cookies, and private page content.
+          required: true

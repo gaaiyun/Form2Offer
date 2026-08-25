@@ -1,0 +1,26 @@
+.DS_Store
+*.log
+
+node_modules/
+dist/
+build/
+coverage/
+output/playwright/
+.playwright-cli/
+__pycache__/
+*.py[cod]
+
+.env
+.env.*
+!.env.example
+
+# Candidate data and API credentials are local-only.
+*.local-profile.json
+*.local-api.json
+*.local-checklist.json
+
+# Historical implementation notes and inherited screenshots are not published.
+docs/superpowers/
+docs/qa/resume-bridge-foundation.md
+assets/openjobautofill-*.png
+assets/resumebridge-logo.png

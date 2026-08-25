@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Form2Offer - 国内校招网申助手",
+  "short_name": "Form2Offer",
+  "version": "0.9.0",
+  "description": "本地优先的校招网申填表助手，覆盖国内 ATS、银行与国企常见字段；敏感内容默认人工确认。",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "action": {
+    "default_title": "Form2Offer 网申助手",
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "src/options.html"
+}
