@@ -50,7 +50,11 @@ test("blocks settings mutations from content-script senders", () => {
     "OJAF_SAVE_JOB_APPLICATION",
     "OJAF_IMPORT_JOB_APPLICATIONS",
     "OJAF_DELETE_JOB_APPLICATION",
-    "OJAF_CLEAR_JOB_APPLICATIONS"
+    "OJAF_CLEAR_JOB_APPLICATIONS",
+    "OJAF_GET_ANSWER_LIBRARY",
+    "OJAF_SAVE_ANSWER_LIBRARY",
+    "OJAF_DELETE_ANSWER_LIBRARY_ITEM",
+    "OJAF_CLEAR_ANSWER_LIBRARY"
   ]) {
     assert.equal(canHandleRuntimeMessage(type, contentSender, context), false, type);
   }

@@ -6,6 +6,8 @@ const els = {
   startAutofillBtn: document.getElementById("startAutofillBtn"),
   showProfilePanelBtn: document.getElementById("showProfilePanelBtn"),
   clearMarksBtn: document.getElementById("clearMarksBtn"),
+  rememberAnswersBtn: document.getElementById("rememberAnswersBtn"),
+  openAnswers: document.getElementById("openAnswers"),
   openTracker: document.getElementById("openTracker"),
   applicationCaptureForm: document.getElementById("applicationCaptureForm"),
   captureFeedback: document.getElementById("captureFeedback"),
@@ -27,6 +29,7 @@ const CONTENT_SCRIPT_FILES = [
   "src/project-utils.js",
   "src/profile-utils.js",
   "src/job-tracker.js",
+  "src/answer-library.js",
   "src/content.js"
 ];
 let capturedJobPageInfo = null;
@@ -43,6 +46,10 @@ els.clearMarksBtn.addEventListener("click", () => {
   void clearMarks();
 });
 els.openTracker.addEventListener("click", openTrackerPage);
+els.openAnswers.addEventListener("click", openAnswersPage);
+els.rememberAnswersBtn.addEventListener("click", () => {
+  void rememberCurrentPageAnswers();
+});
 els.captureCandidate.addEventListener("change", () => {
   const candidate = capturedJobCandidates[Number(els.captureCandidate.value)];
   if (candidate) {
@@ -214,6 +221,39 @@ function populateCaptureStatuses() {
 
 function openTrackerPage() {
   chrome.tabs.create({ url: chrome.runtime.getURL("src/tracker.html") });
+}
+
+function openAnswersPage() {
+  chrome.tabs.create({ url: chrome.runtime.getURL("src/answers.html") });
+}
+
+async function rememberCurrentPageAnswers() {
+  els.rememberAnswersBtn.disabled = true;
+  els.rememberAnswersBtn.textContent = "正在检查本页...";
+  try {
+    const response = await sendToActiveTab({ type: "OJAF_COLLECT_OPEN_ANSWERS" });
+    const entries = Array.isArray(response?.data?.entries) ? response.data.entries : [];
+    if (entries.length === 0) {
+      setStatus("本页没有找到已填写且可安全记忆的开放题；隐私字段和声明题不会保存。", false);
+      return;
+    }
+    const preview = entries.slice(0, 4).map((entry, index) => `${index + 1}. ${entry.question}`).join("\n");
+    const remaining = entries.length > 4 ? `\n另有 ${entries.length - 4} 题` : "";
+    if (!window.confirm(`将以下 ${entries.length} 道问答保存在本机：\n\n${preview}${remaining}\n\n以后仅在题目精确匹配时复用。是否继续？`)) {
+      setStatus("已取消保存，本页内容没有写入问答库。", false);
+      return;
+    }
+    const result = await sendRuntimeMessage({
+      type: "OJAF_SAVE_ANSWER_LIBRARY",
+      payload: { entries }
+    });
+    setStatus(`问答库已更新：新增 ${result.createdCount || 0} 题，更新 ${result.updatedCount || 0} 题，未变化 ${result.skippedCount || 0} 题。`);
+  } catch (error) {
+    setStatus(`保存问答失败：${error.message}`, true);
+  } finally {
+    els.rememberAnswersBtn.disabled = false;
+    els.rememberAnswersBtn.textContent = "记住本页已填写问答";
+  }
 }
 
 function setCaptureFeedback(message, state = "") {

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>本地问答记忆 - Form2Offer</title>
+    <link rel="stylesheet" href="./answers.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <div class="brand-lockup">
+          <img src="../icons/icon128.png" alt="" />
+          <div>
+            <p class="product-kicker">FORM2OFFER</p>
+            <h1>本地问答记忆</h1>
+            <p>答案只保存在当前浏览器；仅在题目标准化后精确匹配时参与填写。</p>
+          </div>
+        </div>
+        <button id="clearAnswers" class="danger" type="button">清空问答库</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="notice" aria-label="隐私边界">
+        <strong>默认排除：</strong>身份证、联系方式、家庭、健康、政治面貌、薪资、违法犯罪以及承诺声明等内容。
+      </section>
+      <div class="toolbar">
+        <label>
+          <span>搜索问答</span>
+          <input id="answerSearch" type="search" placeholder="输入题目或答案关键词" autocomplete="off" />
+        </label>
+        <p id="answerCount" aria-live="polite">共 0 条</p>
+      </div>
+      <p id="pageStatus" class="status" aria-live="polite"></p>
+      <section id="answerList" class="answer-list" aria-label="已保存问答"></section>
+      <section id="emptyState" class="empty-state">
+        <h2>还没有保存问答</h2>
+        <p>在网申页填写开放题后，打开 Form2Offer 并点击“记住本页已填写问答”。</p>
+      </section>
+    </main>
+
+    <template id="answerTemplate">
+      <article class="answer-card">
+        <div class="answer-heading">
+          <h2 class="question"></h2>
+          <button class="delete danger small" type="button">删除</button>
+        </div>
+        <label>
+          <span>答案</span>
+          <textarea class="answer" rows="6" maxlength="8000"></textarea>
+        </label>
+        <div class="answer-footer">
+          <span class="updated-at"></span>
+          <button class="save small" type="button">保存修改</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="./answer-library.js"></script>
+    <script src="./answers.js"></script>
+  </body>
+</html>

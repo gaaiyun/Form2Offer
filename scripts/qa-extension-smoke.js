@@ -130,6 +130,7 @@ async function sendContentMessage(worker, message, options = {}) {
           "src/project-utils.js",
           "src/profile-utils.js",
           "src/job-tracker.js",
+          "src/answer-library.js",
           "src/content.js"
         ]
       });
@@ -160,6 +161,9 @@ async function readForm(page) {
     emergencyContact: document.getElementById("emergencyContact").value,
     degree: document.getElementById("degree").value,
     backgroundCheck: document.querySelector('input[name="backgroundCheck"]:checked')?.value || "",
+    openQuestion: document.getElementById("openQuestion").value,
+    familyQuestion: document.getElementById("familyQuestion").value,
+    declarationQuestion: document.getElementById("declarationQuestion").value,
     submitCount: window.__form2OfferSubmitCount,
     markedFilled: document.querySelectorAll('[data-ojaf-mark="filled"]').length,
     markedPending: document.querySelectorAll('[data-ojaf-mark="uncertain"]').length
@@ -293,6 +297,35 @@ async function main() {
     assert.equal(captureResponse.data.jobTitle, "软件开发工程师");
     assert.equal(captureResponse.data.sourceUrl, fixtureUrl);
 
+    const collectedAnswers = await sendContentMessage(worker, { type: "OJAF_COLLECT_OPEN_ANSWERS" });
+    assert.equal(collectedAnswers?.ok, true, "open-question collection failed");
+    assert.equal(collectedAnswers.data.entries.length, 1, "private or declaration text entered answer memory");
+    assert.match(collectedAnswers.data.entries[0].question, /跨部门项目/);
+    const answersPage = await context.newPage();
+    await answersPage.setViewportSize({ width: 960, height: 820 });
+    await answersPage.goto(`chrome-extension://${extensionId}/src/answers.html`);
+    const savedAnswers = await answersPage.evaluate(async (answerEntries) => {
+      return chrome.runtime.sendMessage({
+        type: "OJAF_SAVE_ANSWER_LIBRARY",
+        payload: { entries: answerEntries }
+      });
+    }, collectedAnswers.data.entries);
+    assert.equal(savedAnswers?.ok, true, "answer memory save failed");
+    assert.equal(savedAnswers.data.createdCount, 1);
+    await formPage.locator("#openQuestion").fill("");
+
+    await answersPage.reload();
+    await answersPage.waitForFunction(() => document.querySelectorAll(".answer-card").length === 1);
+    assert.match(await answersPage.locator(".question").innerText(), /跨部门项目/);
+    await answersPage.screenshot({ path: path.join(outputDir, "answers-desktop.png"), fullPage: true });
+    const answersDesktopLayout = await inspectLayout(answersPage);
+    assert.equal(answersDesktopLayout.horizontalOverflow <= 1, true, "desktop answer page overflows horizontally");
+    await answersPage.setViewportSize({ width: 390, height: 844 });
+    const answersMobileLayout = await inspectLayout(answersPage);
+    assert.equal(answersMobileLayout.horizontalOverflow <= 1, true, "mobile answer page overflows horizontally");
+    await answersPage.close();
+    await formPage.bringToFront();
+
     const defaultRun = await runAutofill(worker, formPage);
     if (!defaultRun.ok) {
       const diagnostics = await collectDiagnostics(worker);
@@ -308,6 +341,9 @@ async function main() {
     assert.equal(defaultForm.emergencyContact, "");
     assert.equal(defaultForm.degree, "硕士研究生");
     assert.equal(defaultForm.backgroundCheck, "");
+    assert.match(defaultForm.openQuestion, /澄清共同目标/, "saved exact answer was not reused");
+    assert.equal(defaultForm.familyQuestion, "此内容不应进入问答库");
+    assert.equal(defaultForm.declarationQuestion, "同意");
     assert.equal(defaultForm.submitCount, 0);
     assert.equal(defaultRun.data?.aiUsage?.attempted, false, "unconfigured AI should not be marked attempted");
     assert.equal(defaultRun.data?.aiUsage?.status, "idle");
@@ -512,6 +548,9 @@ async function main() {
       desktopLayout,
       mobileLayout,
       popupLayout,
+      answersDesktopLayout,
+      answersMobileLayout,
+      answerMemory: savedAnswers.data.entries[0],
       trackerDesktopLayout,
       trackerMobileLayout,
       capture: captureResponse.data,

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.9.0" src="https://img.shields.io/badge/version-0.9.0-0f766e" />
+  <img alt="Version 0.10.0" src="https://img.shields.io/badge/version-0.10.0-0f766e" />
   <a href="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml"><img alt="Verify" src="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml/badge.svg" /></a>
   <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2563eb" />
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-334155" />
@@ -25,13 +25,13 @@ Form2Offer 是一个面向求职网申场景的 Chrome / Edge 浏览器扩展。
 > [!IMPORTANT]
 > Form2Offer 是填写辅助工具，不是自动投递工具。它不会上传附件、绕过验证码或点击最终提交。每次填写都由用户主动触发，结果也必须由用户复核。
 
-当前版本为 **0.9.0 公测版**，可通过 Release 安装或直接加载源码目录。项目尚未发布到浏览器扩展商店。
+当前版本为 **0.10.0 公测版**，可通过 Release 安装或直接加载源码目录。项目尚未发布到浏览器扩展商店。
 
 ## 界面预览
 
-| 设置与完整网申档案 | 快速填写与投递追踪 |
-| --- | --- |
-| ![Form2Offer 设置页](docs/images/options-desktop.png) | ![Form2Offer 弹窗](docs/images/popup.png) |
+| 设置与完整网申档案 | 快速填写与投递追踪 | 本地问答记忆 |
+| --- | --- | --- |
+| ![Form2Offer 设置页](docs/images/options-desktop.png) | ![Form2Offer 弹窗](docs/images/popup.png) | ![Form2Offer 本地问答记忆](docs/images/answer-library.png) |
 
 ## 当前开发进展
 
@@ -41,6 +41,7 @@ Form2Offer 是一个面向求职网申场景的 Chrome / Edge 浏览器扩展。
 | 复杂日期控件 | 支持开始年、开始月、结束年、结束月等分拆日期组合，并可在常见滚动式自定义下拉中查找选项 |
 | 多条项目经历 | 识别项目经历、项目经验、科研项目等分区，按本地项目顺序填写；只在已确认的项目区有限触发“添加项目” |
 | 投递追踪 | 从当前招聘页提取待确认的公司和职位，记录渠道、投递时间、流程状态、状态更新时间和备注；支持筛选、排序、行内更新及 CSV 导入导出 |
+| 本地问答记忆 | 用户主动保存当前页已填写的开放题，按标准化后的完整题目精确复用；提供独立管理页，可搜索、编辑、删除和清空 |
 | 质量验证 | 自动化测试覆盖谨慎填写、日期下拉、项目经历、投递追踪、CSV 兼容与扩展权限边界 |
 
 自动化样例用于防止已知行为回归，不代表对所有招聘网站永久兼容。真实页面仍应在提交前逐项复核。
@@ -79,6 +80,7 @@ flowchart LR
 | 风险控制 | 默认不覆盖已有内容，不自动填写敏感字段和声明，不处理上传与提交控件 |
 | 人工复核 | 已填写与待处理字段分别标记，最终提交始终由用户完成 |
 | 投递追踪 | 从当前招聘页识别公司与职位，经用户确认后保存渠道、投递时间、状态页、流程状态及更新时间；支持筛选、排序、行内改状态和 CSV 双向迁移 |
+| 本地问答记忆 | 填完开放题后由用户主动确认保存；以后仅对标准化后完全相同的题目复用答案，问答可在独立页面管理 |
 | 数据迁移 | 可导入 ResumeBridge、OpenJobAutofill 备份，并导出 Form2Offer 格式的本地备份 |
 
 招聘网站会持续调整页面结构，因此“已有适配规则”不等于对相应网站永久兼容。遇到未识别控件时，扩展会尽量保留为待处理项，而不是强行填写。
@@ -98,6 +100,7 @@ flowchart LR
 
 - 履历和 API 配置保存在当前浏览器扩展的 `chrome.storage.local`，不使用浏览器同步存储。
 - 投递记录同样只保存在 `chrome.storage.local`；职位页和状态页 URL 都会移除查询参数和片段，降低保留常见查询令牌的风险。
+- 本地问答记忆只在用户点击“记住本页已填写问答”并确认清单后写入；身份证、联系方式、家庭、健康、政治面貌、薪资及声明类题目会被排除。
 - CSV 在扩展页面本地解析，批量写入接口只接受扩展自身的受信页面调用；导出内容会处理常见电子表格公式注入前缀。
 - 招聘页面只能提供待确认的公司与职位候选，不能读取、修改或删除投递历史。
 - API Key、Headers 和请求模板只向扩展自身的受信页面开放，招聘网站内容脚本不能读取这些配置。
@@ -118,7 +121,7 @@ AI 功能默认关闭。配置后，每次“开始填写”最多发起一次�
 
 ## 安装
 
-当前版本通过开发者模式加载，无需构建。普通用户可从 [Releases](https://github.com/gaaiyun/Form2Offer/releases) 下载 `Form2Offer-v0.9.0.zip` 并解压；开发者也可以克隆源码：
+当前版本通过开发者模式加载，无需构建。普通用户可从 [Releases](https://github.com/gaaiyun/Form2Offer/releases) 下载 `Form2Offer-v0.10.0.zip` 并解压；开发者也可以克隆源码：
 
 ```powershell
 git clone https://github.com/gaaiyun/Form2Offer.git
@@ -143,6 +146,7 @@ cd Form2Offer
 6. 手动完成附件、敏感问答、验证码和最终提交。
 7. 再次打开扩展，核对“投递追踪”中的公司、职位、渠道、时间和状态，然后点击“记录本次投递”。
 8. 点击“查看记录”可搜索和排序记录、直接更新流程状态、编辑状态页链接，并导入或导出 CSV。
+9. 开放题填写完成后，可点击“记住本页已填写问答”，核对清单并保存；“管理”页可搜索、修改或删除答案。
 
 > [!TIP]
 > 首次在某个网站使用时，建议保留全部谨慎策略，只用虚构或低敏感度数据验证字段映射是否正确。
@@ -175,6 +179,7 @@ npm run verify  # 依次执行语法检查和测试
 - Form2Offer、ResumeBridge 与 OpenJobAutofill 备份兼容；
 - AI 未配置或失败时的本地回退行为。
 - 招聘页信息识别、流程状态迁移、CSV 解析与防公式注入、投递记录去重和投递历史权限边界。
+- 开放题资格过滤、隐私与声明排除、精确题目归一化、问答去重更新及扩展页面权限边界。
 
 浏览器端冒烟测试说明见 [docs/qa/browser-smoke.md](docs/qa/browser-smoke.md)。字段范围与平台边界见 [docs/PROFILE_FIELDS.md](docs/PROFILE_FIELDS.md) 和 [docs/SUPPORTED_SITES.md](docs/SUPPORTED_SITES.md)。
 
@@ -190,6 +195,8 @@ Form2Offer/
 │  ├─ popup.*                 # 扩展弹窗
 │  ├─ tracker.*               # 投递追踪表格页
 │  ├─ job-tracker.js          # 投递记录模型与页面信号解析
+│  ├─ answers.*               # 本地问答记忆管理页
+│  ├─ answer-library.js       # 问答过滤、标准化、去重与精确查找
 │  ├─ date-utils.js           # 日期拆分、投影与数值选项匹配
 │  ├─ project-utils.js        # 项目分区、字段与安全新增动作识别
 │  ├─ safety-policy.js        # 谨慎填写策略
@@ -206,14 +213,14 @@ Form2Offer/
 - 网站专用规则仍需通过更多真实页面持续回归验证。
 - 公司和职位识别依赖招聘页结构化数据与启发式页面信号，保存前仍需用户核对。
 - 本地资料暂未提供口令加密、多份履历版本和职位级资料切换。
-- 用户纠正后的字段映射尚不能按网站自动学习和复用。
+- 用户纠正后的通用字段映射尚不能按网站自动学习和复用；当前仅开放题支持精确题目记忆。
 - 开放题暂不提供独立的 AI 草稿审阅流程。
 - 当前没有浏览器商店签名包或自动更新通道。
 
 ## 路线图
 
 1. 建立 ATS 适配器目录、匿名化页面样例和持续回归测试。
-2. 在本地记录用户纠正后的字段映射，并按域名复用。
+2. 在本地记录用户纠正后的通用字段映射，并按域名复用。
 3. 支持多份履历版本与职位定制字段。
 4. 为开放题增加发送前预览、可编辑的 AI 草稿流程。
 5. 增加加密导出和可选的本地资料保险箱。

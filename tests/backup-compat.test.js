@@ -18,9 +18,11 @@ test("exports Form2Offer backups and accepts both predecessor formats", () => {
 
 test("public manifest stays least-privilege and independently branded", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
   assert.match(manifest.name, /Form2Offer/);
-  assert.equal(manifest.version, "0.9.0");
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.short_name, "Form2Offer");
   assert.equal(manifest.permissions.includes("alarms"), false);
   assert.equal(Object.hasOwn(manifest, "host_permissions"), false);

@@ -8,6 +8,7 @@ const safetyPolicy = require("../src/safety-policy.js");
 const messagePolicy = require("../src/message-policy.js");
 const aiPrivacy = require("../src/ai-privacy.js");
 const jobTracker = require("../src/job-tracker.js");
+const answerLibrary = require("../src/answer-library.js");
 
 const backgroundSource = fs.readFileSync(path.join(__dirname, "..", "src", "background.js"), "utf8");
 
@@ -33,6 +34,7 @@ function createBackgroundHarness(options = {}) {
       model: "test-model"
     },
     jobApplications: [],
+    answerLibrary: [],
     unrelatedSetting: "keep-me"
   };
   const sessionData = {
@@ -95,6 +97,7 @@ function createBackgroundHarness(options = {}) {
     context.Form2OfferMessagePolicy = messagePolicy;
     context.Form2OfferAiPrivacy = aiPrivacy;
     context.Form2OfferJobTracker = jobTracker;
+    context.Form2OfferAnswerLibrary = answerLibrary;
   };
 
   vm.runInNewContext(backgroundSource, context, { filename: "src/background.js" });
@@ -327,6 +330,42 @@ test("keeps job-search history private from content-script senders", async () =>
   }
 
   assert.equal(harness.localData.jobApplications.length, 1);
+});
+
+test("stores and manages answer memory only from trusted extension pages", async () => {
+  const harness = createBackgroundHarness();
+  const saved = await harness.send({
+    type: "OJAF_SAVE_ANSWER_LIBRARY",
+    payload: {
+      entries: [{ question: "为什么选择本公司？", answer: "方向与我的长期积累一致。" }]
+    }
+  }, trustedSender);
+
+  assert.equal(saved.ok, true);
+  assert.equal(saved.data.createdCount, 1);
+  assert.equal(harness.localData.answerLibrary.length, 1);
+
+  const settings = await harness.send({ type: "OJAF_GET_SETTINGS" }, contentSender);
+  assert.equal(settings.ok, true);
+  assert.equal(settings.data.answerLibrary[0].answer.includes("长期积累"), true);
+
+  for (const message of [
+    { type: "OJAF_GET_ANSWER_LIBRARY" },
+    { type: "OJAF_SAVE_ANSWER_LIBRARY", payload: { entries: [] } },
+    { type: "OJAF_DELETE_ANSWER_LIBRARY_ITEM", payload: { id: saved.data.entries[0].id } },
+    { type: "OJAF_CLEAR_ANSWER_LIBRARY" }
+  ]) {
+    const response = await harness.send(message, contentSender);
+    assert.equal(response.ok, false, message.type);
+  }
+
+  const removed = await harness.send({
+    type: "OJAF_DELETE_ANSWER_LIBRARY_ITEM",
+    payload: { id: saved.data.entries[0].id }
+  }, trustedSender);
+  assert.equal(removed.ok, true);
+  assert.equal(removed.data.deleted, true);
+  assert.equal(harness.localData.answerLibrary.length, 0);
 });
 
 test("AI request construction removes current values and private URL components", async () => {

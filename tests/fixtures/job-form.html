@@ -63,12 +63,19 @@
 
       input,
       select,
+      textarea,
       button {
         min-height: 42px;
         padding: 0 12px;
         border: 1px solid #bcc6d0;
         border-radius: 6px;
         font: inherit;
+      }
+
+      textarea {
+        min-height: 110px;
+        padding: 10px 12px;
+        resize: vertical;
       }
 
       fieldset {
@@ -147,6 +154,21 @@
           <label><input name="backgroundCheck" type="radio" value="是" />是</label>
           <label><input name="backgroundCheck" type="radio" value="否" />否</label>
         </fieldset>
+
+        <div class="field">
+          <label for="openQuestion">请介绍一次你如何在跨部门项目中解决目标冲突的经历？</label>
+          <textarea id="openQuestion" name="openQuestion">我先澄清共同目标，再把分歧拆成可验证的方案并推动小范围试验。</textarea>
+        </div>
+
+        <div class="field">
+          <label for="familyQuestion">请填写家庭成员及职业</label>
+          <textarea id="familyQuestion" name="familyQuestion">此内容不应进入问答库</textarea>
+        </div>
+
+        <div class="field">
+          <label for="declarationQuestion">本人承诺以上信息真实有效</label>
+          <textarea id="declarationQuestion" name="declarationQuestion">同意</textarea>
+        </div>
 
         <button id="submitApplication" type="submit">提交申请</button>
         <p id="submitState">提交次数：0</p>

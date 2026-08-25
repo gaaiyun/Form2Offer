@@ -1,4 +1,4 @@
-importScripts("safety-policy.js", "message-policy.js", "ai-privacy.js", "job-tracker.js");
+importScripts("safety-policy.js", "message-policy.js", "ai-privacy.js", "job-tracker.js", "answer-library.js");
 
 const { DEFAULT_FILL_POLICY, normalizeFillPolicy } = globalThis.Form2OfferSafetyPolicy;
 const { canHandleRuntimeMessage, isTrustedExtensionPage } = globalThis.Form2OfferMessagePolicy;
@@ -8,6 +8,10 @@ const {
   normalizeJobApplication,
   normalizeJobApplications
 } = globalThis.Form2OfferJobTracker;
+const {
+  normalizeAnswerLibrary,
+  mergeAnswerLibrary
+} = globalThis.Form2OfferAnswerLibrary;
 
 const MAX_AI_FIELD_COUNT = 300;
 const AI_REQUEST_TIMEOUT_MS = 90000;
@@ -48,7 +52,8 @@ const STORAGE_KEYS = {
   profileV2: "profileV2",
   apiConfig: "apiConfig",
   fillPolicy: "fillPolicy",
-  jobApplications: "jobApplications"
+  jobApplications: "jobApplications",
+  answerLibrary: "answerLibrary"
 };
 
 const PROFILE_PANEL_STATE_KEY = "OJAF_PROFILE_PANEL_STATE";
@@ -63,7 +68,8 @@ chrome.runtime.onInstalled.addListener(async () => {
     STORAGE_KEYS.profileV2,
     STORAGE_KEYS.apiConfig,
     STORAGE_KEYS.fillPolicy,
-    STORAGE_KEYS.jobApplications
+    STORAGE_KEYS.jobApplications,
+    STORAGE_KEYS.answerLibrary
   ]);
   const next = {};
 
@@ -81,6 +87,10 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   if (!Array.isArray(existing[STORAGE_KEYS.jobApplications])) {
     next[STORAGE_KEYS.jobApplications] = [];
+  }
+
+  if (!Array.isArray(existing[STORAGE_KEYS.answerLibrary])) {
+    next[STORAGE_KEYS.answerLibrary] = [];
   }
 
   if (Object.keys(next).length > 0) {
@@ -151,6 +161,14 @@ async function handleMessage(message, sender = {}) {
       return deleteJobApplication(message.payload || {});
     case "OJAF_CLEAR_JOB_APPLICATIONS":
       return clearJobApplications();
+    case "OJAF_GET_ANSWER_LIBRARY":
+      return getAnswerLibrary();
+    case "OJAF_SAVE_ANSWER_LIBRARY":
+      return saveAnswerLibrary(message.payload || {});
+    case "OJAF_DELETE_ANSWER_LIBRARY_ITEM":
+      return deleteAnswerLibraryItem(message.payload || {});
+    case "OJAF_CLEAR_ANSWER_LIBRARY":
+      return clearAnswerLibrary();
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -160,12 +178,14 @@ async function getSettings(options = {}) {
   const values = await chrome.storage.local.get([
     STORAGE_KEYS.profileV2,
     STORAGE_KEYS.apiConfig,
-    STORAGE_KEYS.fillPolicy
+    STORAGE_KEYS.fillPolicy,
+    STORAGE_KEYS.answerLibrary
   ]);
   const apiConfig = normalizeApiConfig(values[STORAGE_KEYS.apiConfig]);
   const settings = {
     profileV2: normalizeProfileV2(values[STORAGE_KEYS.profileV2] || DEFAULT_PROFILE_V2),
     fillPolicy: normalizeFillPolicy(values[STORAGE_KEYS.fillPolicy]),
+    answerLibrary: normalizeAnswerLibrary(values[STORAGE_KEYS.answerLibrary]),
     aiConfigured: isAiApiConfigured(apiConfig)
   };
 
@@ -387,6 +407,43 @@ async function clearJobApplications() {
   const result = await chrome.storage.local.get([STORAGE_KEYS.jobApplications]);
   const clearedCount = normalizeJobApplications(result[STORAGE_KEYS.jobApplications]).length;
   await chrome.storage.local.set({ [STORAGE_KEYS.jobApplications]: [] });
+  return { cleared: true, clearedCount };
+}
+
+async function getAnswerLibrary() {
+  const result = await chrome.storage.local.get([STORAGE_KEYS.answerLibrary]);
+  return { entries: normalizeAnswerLibrary(result[STORAGE_KEYS.answerLibrary]) };
+}
+
+async function saveAnswerLibrary(payload) {
+  const result = await chrome.storage.local.get([STORAGE_KEYS.answerLibrary]);
+  const merged = mergeAnswerLibrary(
+    result[STORAGE_KEYS.answerLibrary],
+    Array.isArray(payload.entries) ? payload.entries : []
+  );
+  await chrome.storage.local.set({ [STORAGE_KEYS.answerLibrary]: merged.entries });
+  return merged;
+}
+
+async function deleteAnswerLibraryItem(payload) {
+  const id = String(payload.id || "").trim().slice(0, 160);
+  if (!id) {
+    throw new Error("Missing answer library item id.");
+  }
+  const result = await chrome.storage.local.get([STORAGE_KEYS.answerLibrary]);
+  const entries = normalizeAnswerLibrary(result[STORAGE_KEYS.answerLibrary]);
+  const next = entries.filter((entry) => entry.id !== id);
+  const deleted = next.length !== entries.length;
+  if (deleted) {
+    await chrome.storage.local.set({ [STORAGE_KEYS.answerLibrary]: next });
+  }
+  return { deleted, id };
+}
+
+async function clearAnswerLibrary() {
+  const result = await chrome.storage.local.get([STORAGE_KEYS.answerLibrary]);
+  const clearedCount = normalizeAnswerLibrary(result[STORAGE_KEYS.answerLibrary]).length;
+  await chrome.storage.local.set({ [STORAGE_KEYS.answerLibrary]: [] });
   return { cleared: true, clearedCount };
 }
 

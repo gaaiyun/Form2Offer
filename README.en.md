@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.9.0" src="https://img.shields.io/badge/version-0.9.0-0f766e" />
+  <img alt="Version 0.10.0" src="https://img.shields.io/badge/version-0.10.0-0f766e" />
   <a href="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml"><img alt="Verify" src="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml/badge.svg" /></a>
   <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2563eb" />
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-334155" />
@@ -25,13 +25,13 @@ Form2Offer is a Chrome and Edge extension for assisted job-application form fill
 > [!IMPORTANT]
 > Form2Offer is a filling assistant, not an application bot. It does not upload files, bypass CAPTCHAs, or click final submit controls. Every run is user initiated and every result requires review.
 
-Version **0.9.0 is a public beta** available through GitHub Releases or as an unpacked extension. It is not yet distributed through a browser extension store.
+Version **0.10.0 is a public beta** available through GitHub Releases or as an unpacked extension. It is not yet distributed through a browser extension store.
 
 ## Preview
 
-| Profile and settings | Quick fill and application tracking |
-| --- | --- |
-| ![Form2Offer settings](docs/images/options-desktop.png) | ![Form2Offer popup](docs/images/popup.png) |
+| Profile and settings | Quick fill and tracking | Local answer memory |
+| --- | --- | --- |
+| ![Form2Offer settings](docs/images/options-desktop.png) | ![Form2Offer popup](docs/images/popup.png) | ![Form2Offer local answer memory](docs/images/answer-library.png) |
 
 ## Current development status
 
@@ -41,6 +41,7 @@ Version **0.9.0 is a public beta** available through GitHub Releases or as an un
 | Complex date controls | Supports split start/end year-month groups and option lookup in common scrollable custom dropdowns |
 | Repeated projects | Recognizes project-experience and research-project sections, fills in local profile order, and invokes bounded add actions only inside verified project sections |
 | Application tracking | Extracts user-confirmed company and role candidates, then stores channel, application time, pipeline status, status-update time, and notes with filtering, sorting, inline updates, and CSV import/export |
+| Local answer memory | Saves completed open-ended answers only after explicit confirmation, reuses normalized exact questions, and provides search, edit, delete, and clear controls |
 | Verification | Automated coverage includes conservative filling, date dropdowns, project records, tracking, CSV compatibility, and extension privilege boundaries |
 
 Fixtures prevent regressions in known behavior; they are not a permanent compatibility guarantee for every recruiting site. Review every field before submission.
@@ -118,7 +119,7 @@ It should not contain local profile values such as names, phone numbers, email a
 
 ## Install
 
-The current version loads directly in developer mode and has no build step. Users can download and extract `Form2Offer-v0.9.0.zip` from [Releases](https://github.com/gaaiyun/Form2Offer/releases); contributors can clone the source:
+The current version loads directly in developer mode and has no build step. Users can download and extract `Form2Offer-v0.10.0.zip` from [Releases](https://github.com/gaaiyun/Form2Offer/releases); contributors can clone the source:
 
 ```powershell
 git clone https://github.com/gaaiyun/Form2Offer.git
@@ -175,6 +176,8 @@ Form2Offer/
 │  ├─ options.*               # Profile and policy settings
 │  ├─ popup.*                 # Extension popup
 │  ├─ tracker.*               # Application tracking table
+│  ├─ answers.*               # Local answer-memory manager
+│  ├─ answer-library.js       # Question filtering, normalization, and exact lookup
 │  ├─ job-tracker.js          # Tracking model and page-signal resolver
 │  ├─ date-utils.js           # Date parsing, projection, and numeric option matching
 │  ├─ project-utils.js        # Project-section, field, and bounded add-action recognition

@@ -37,6 +37,7 @@
   let profilePanelStateRestored = false;
   let currentProfileV2 = null;
   let currentFillPolicy = globalThis.Form2OfferSafetyPolicy?.normalizeFillPolicy();
+  let currentAnswerLibrary = [];
   let currentAiConfigured = false;
   let currentProfileLoadPromise = null;
   let currentSiteAdapter = null;
@@ -3488,6 +3489,7 @@
       const settings = await sendRuntimeMessage({ type: "OJAF_GET_SETTINGS" });
       currentProfileV2 = settings.profileV2 || null;
       currentFillPolicy = globalThis.Form2OfferSafetyPolicy?.normalizeFillPolicy(settings.fillPolicy);
+      currentAnswerLibrary = globalThis.Form2OfferAnswerLibrary?.normalizeAnswerLibrary(settings.answerLibrary) || [];
       currentAiConfigured = Boolean(settings.aiConfigured);
       return currentProfileV2;
     })();
@@ -3628,7 +3630,24 @@
   }
 
   function getCurrentProfileSections() {
-    return profileV2ToProfileSections(currentProfileV2);
+    const sections = profileV2ToProfileSections(currentProfileV2);
+    appendAnswerLibrarySection(sections, currentAnswerLibrary);
+    return sections;
+  }
+
+  function appendAnswerLibrarySection(sections, entries) {
+    const normalized = globalThis.Form2OfferAnswerLibrary?.normalizeAnswerLibrary(entries) || [];
+    if (normalized.length === 0) {
+      return;
+    }
+    const section = ensureProfileSection(sections, "网申问答", "本地问答记忆");
+    normalized.forEach((entry) => {
+      appendProfileV2Entry(section, {
+        label: entry.question,
+        value: entry.answer,
+        itemId: `answerLibrary.${entry.id}.answer`
+      });
+    });
   }
 
   function getCurrentProfileEntries() {
@@ -4026,6 +4045,10 @@
     const label = normalizeMatchKey(field?.inferredLabel || field?.label || "");
     if (isLikelyFamilyMemberContext(field, label)) {
       return "家庭信息";
+    }
+
+    if (globalThis.Form2OfferAnswerLibrary?.findAnswerForQuestion(currentAnswerLibrary, label)) {
+      return "网申问答";
     }
 
     const directLabelSection = inferSectionFromDirectLabel(label);
@@ -7646,11 +7669,18 @@
 
   if (chrome?.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== "local" || !changes.profileV2) {
+      if (areaName !== "local" || (!changes.profileV2 && !changes.answerLibrary)) {
         return;
       }
 
-      currentProfileV2 = changes.profileV2.newValue || null;
+      if (changes.profileV2) {
+        currentProfileV2 = changes.profileV2.newValue || null;
+      }
+      if (changes.answerLibrary) {
+        currentAnswerLibrary = globalThis.Form2OfferAnswerLibrary?.normalizeAnswerLibrary(
+          changes.answerLibrary.newValue
+        ) || [];
+      }
       if (profilePanelVisible) {
         renderProfilePanel();
       }
@@ -8111,6 +8141,49 @@
       .slice(0, 1500);
   }
 
+  function getFullControlTextValue(element) {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      return String(element.value || "").trim().slice(0, 8000);
+    }
+    if (element?.isContentEditable) {
+      return String(element.innerText || element.textContent || "").trim().slice(0, 8000);
+    }
+    return "";
+  }
+
+  function collectOpenQuestionAnswers() {
+    const library = globalThis.Form2OfferAnswerLibrary;
+    if (!library?.isEligibleOpenQuestion) {
+      return { entries: [], scannedCount: 0 };
+    }
+
+    const controls = collectVisibleControls().filter((element) => {
+      const type = getControlType(element);
+      return ["textarea", "text", "contenteditable"].includes(type) && !element.disabled && !element.readOnly;
+    });
+    const seen = new Set();
+    const entries = [];
+    for (const element of controls) {
+      const field = buildFieldMeta(element);
+      const question = inferFieldLabel(field);
+      const answer = getFullControlTextValue(element);
+      const controlType = getControlType(element);
+      if (!library.isEligibleOpenQuestion(question, answer, controlType)) {
+        continue;
+      }
+      const key = library.normalizeQuestionKey(question);
+      if (!key || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      entries.push({ question: library.cleanQuestion(question), answer: library.cleanAnswer(answer) });
+      if (entries.length >= 20) {
+        break;
+      }
+    }
+    return { entries, scannedCount: controls.length };
+  }
+
   async function handleContentMessage(message) {
     if (message.type === "OJAF_SHOW_PROFILE_PANEL") {
       showProfilePanel();
@@ -8137,6 +8210,10 @@
 
     if (message.type === "OJAF_GET_JOB_PAGE_INFO") {
       return getJobPageInfo();
+    }
+
+    if (message.type === "OJAF_COLLECT_OPEN_ANSWERS") {
+      return collectOpenQuestionAnswers();
     }
 
     return undefined;
