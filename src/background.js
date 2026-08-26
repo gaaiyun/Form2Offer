@@ -480,6 +480,9 @@ async function requestBridge(path, options = {}) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok === false) {
+      if (response.status === 401 && options.auth !== false) {
+        throw new Error("Bridge 授权失败，请在扩展设置页使用当前配对码重新配对。");
+      }
       throw new Error(payload.error || `Local Bridge 请求失败 (${response.status})。`);
     }
     return payload.data ?? payload;

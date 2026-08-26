@@ -722,7 +722,11 @@ async function checkAgentBridge() {
   try {
     await saveAgentSettings();
     const health = await sendRuntimeMessage({ type: "OJAF_AGENT_HEALTH" });
-    setAgentFeedback(`Bridge ${health.version || ""} 已连接；Codex ${health.agents?.codex ? "可用" : "未启用"}，MCP 可用。`, false, true);
+    if (!health.paired) {
+      setAgentFeedback(`Bridge ${health.version || ""} 已连接，但尚未配对。请填写 Bridge 窗口中的 6 位配对码后点击“配对”。`, false, false);
+    } else {
+      setAgentFeedback(`Bridge ${health.version || ""} 已连接并已配对；Codex ${health.agents?.codex ? "可用" : "未启用"}，MCP 可用。`, false, true);
+    }
   } catch (error) { setAgentFeedback(`检测失败：${error.message}`, true); }
   finally { setAgentBusy(false); }
 }
