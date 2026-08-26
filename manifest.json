@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Form2Offer - 国内校招网申助手",
   "short_name": "Form2Offer",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "本地优先的校招网申填表助手，覆盖国内 ATS、银行与国企常见字段；敏感内容默认人工确认。",
   "permissions": [
     "activeTab",

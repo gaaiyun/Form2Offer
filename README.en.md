@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.10.0" src="https://img.shields.io/badge/version-0.10.0-0f766e" />
+  <img alt="Version 0.11.0" src="https://img.shields.io/badge/version-0.11.0-0f766e" />
   <a href="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml"><img alt="Verify" src="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml/badge.svg" /></a>
   <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2563eb" />
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-334155" />
@@ -25,7 +25,7 @@ Form2Offer is a Chrome and Edge extension for assisted job-application form fill
 > [!IMPORTANT]
 > Form2Offer is a filling assistant, not an application bot. It does not upload files, bypass CAPTCHAs, or click final submit controls. Every run is user initiated and every result requires review.
 
-Version **0.10.0 is a public beta** available through GitHub Releases or as an unpacked extension. It is not yet distributed through a browser extension store.
+Version **0.11.0 is a public beta** available through GitHub Releases or as an unpacked extension. It is not yet distributed through a browser extension store.
 
 ## Preview
 
@@ -119,7 +119,7 @@ It should not contain local profile values such as names, phone numbers, email a
 
 ## Install
 
-The current version loads directly in developer mode and has no build step. Users can download and extract `Form2Offer-v0.10.0.zip` from [Releases](https://github.com/gaaiyun/Form2Offer/releases); contributors can clone the source:
+The current version loads directly in developer mode and has no build step. Users can download and extract `Form2Offer-v0.11.0.zip` from [Releases](https://github.com/gaaiyun/Form2Offer/releases); contributors can clone the source:
 
 ```powershell
 git clone https://github.com/gaaiyun/Form2Offer.git

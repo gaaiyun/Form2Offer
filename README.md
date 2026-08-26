@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.10.0" src="https://img.shields.io/badge/version-0.10.0-0f766e" />
+  <img alt="Version 0.11.0" src="https://img.shields.io/badge/version-0.11.0-0f766e" />
   <a href="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml"><img alt="Verify" src="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml/badge.svg" /></a>
   <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2563eb" />
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-334155" />
@@ -25,7 +25,7 @@ Form2Offer 是一个面向求职网申场景的 Chrome / Edge 浏览器扩展。
 > [!IMPORTANT]
 > Form2Offer 是填写辅助工具，不是自动投递工具。它不会上传附件、绕过验证码或点击最终提交。每次填写都由用户主动触发，结果也必须由用户复核。
 
-当前版本为 **0.10.0 公测版**，可通过 Release 安装或直接加载源码目录。项目尚未发布到浏览器扩展商店。
+当前版本为 **0.11.0 公测版**，可通过 Release 安装或直接加载源码目录。项目尚未发布到浏览器扩展商店。
 
 ## 界面预览
 
@@ -42,6 +42,7 @@ Form2Offer 是一个面向求职网申场景的 Chrome / Edge 浏览器扩展。
 | 多条项目经历 | 识别项目经历、项目经验、科研项目等分区，按本地项目顺序填写；只在已确认的项目区有限触发“添加项目” |
 | 投递追踪 | 从当前招聘页提取待确认的公司和职位，记录渠道、投递时间、流程状态、状态更新时间和备注；支持筛选、排序、行内更新及 CSV 导入导出 |
 | 本地问答记忆 | 用户主动保存当前页已填写的开放题，按标准化后的完整题目精确复用；提供独立管理页，可搜索、编辑、删除和清空 |
+| 本地 Agent 协作 | 可选 Local Bridge 连接 Codex CLI 或 MCP Client；Agent 读取白名单资料生成方案，用户审阅确认后才写入网页 |
 | 质量验证 | 自动化测试覆盖谨慎填写、日期下拉、项目经历、投递追踪、CSV 兼容与扩展权限边界 |
 
 自动化样例用于防止已知行为回归，不代表对所有招聘网站永久兼容。真实页面仍应在提交前逐项复核。
@@ -108,6 +109,14 @@ flowchart LR
 - 扩展只在用户主动点击后，通过 `activeTab` 与 `scripting` 权限访问当前页面。
 - 当前本地存储不是口令加密保险箱。请勿在共享电脑中保存不必要的身份证、家庭成员等资料。
 
+### Local Bridge 数据边界
+
+- Local Bridge 是独立、可选的本机组件，只监听 `127.0.0.1`；扩展 ZIP 不包含 Bridge，未安装时原有功能不受影响。
+- 扩展提交的表单快照不含网页已有值、URL 路径、查询参数和页面指令；身份证、电话、邮箱、住址、家庭、健康等资料路径不会进入 Agent 目录。
+- Bridge 只读取用户明确批准的相对路径，并拒绝目录穿越、备份目录、输出目录、临时目录和压缩包。
+- Codex 自动模式使用只读、ephemeral 任务；MCP 模式由 Codex、Work Buddy、Claude Code 或其他 Client 主动领取任务。
+- Agent 背后的模型是否接收脱敏资料，取决于用户选择的 Agent 与模型提供商。Form2Offer 不运营接收简历的公网服务。
+
 ### AI 数据边界
 
 AI 功能默认关闭。配置后，每次“开始填写”最多发起一次字段映射请求；如果本地规则已能高置信度处理全部字段，则不会调用 AI。请求只包含仍需辅助判断的有限字段，主要包括：
@@ -121,7 +130,7 @@ AI 功能默认关闭。配置后，每次“开始填写”最多发起一次�
 
 ## 安装
 
-当前版本通过开发者模式加载，无需构建。普通用户可从 [Releases](https://github.com/gaaiyun/Form2Offer/releases) 下载 `Form2Offer-v0.10.0.zip` 并解压；开发者也可以克隆源码：
+当前版本通过开发者模式加载，无需构建。普通用户可从 [Releases](https://github.com/gaaiyun/Form2Offer/releases) 下载 `Form2Offer-v0.11.0.zip` 并解压；开发者也可以克隆源码：
 
 ```powershell
 git clone https://github.com/gaaiyun/Form2Offer.git
@@ -148,6 +157,10 @@ cd Form2Offer
 8. 点击“查看记录”可搜索和排序记录、直接更新流程状态、编辑状态页链接，并导入或导出 CSV。
 9. 开放题填写完成后，可点击“记住本页已填写问答”，核对清单并保存；“管理”页可搜索、修改或删除答案。
 
+### 可选：连接本地 Agent
+
+Release 另行提供 `Form2Offer-Bridge-win-x64-v0.11.0.zip`。解压后按 [Local Bridge 使用说明](bridge/README.md) 初始化资料白名单并启动 Bridge，再到扩展设置页完成一次性配对。此后可在招聘页点击“交给本地 Agent”，选择 Codex CLI 自动任务或 MCP Client 主动领取模式。方案在独立审阅页显示，未勾选确认前不会修改网页。
+
 > [!TIP]
 > 首次在某个网站使用时，建议保留全部谨慎策略，只用虚构或低敏感度数据验证字段映射是否正确。
 
@@ -167,6 +180,8 @@ cd Form2Offer
 npm run check   # 检查扩展脚本语法
 npm test        # 运行单元测试
 npm run verify  # 依次执行语法检查和测试
+npm run package:extension
+npm run package:bridge
 ```
 
 当前测试重点覆盖：
@@ -197,7 +212,10 @@ Form2Offer/
 │  ├─ job-tracker.js          # 投递记录模型与页面信号解析
 │  ├─ answers.*               # 本地问答记忆管理页
 │  ├─ answer-library.js       # 问答过滤、标准化、去重与精确查找
+│  ├─ agent-bridge.js         # localhost 配置、快照脱敏与请求边界
+│  ├─ agent-review.*          # Agent 方案轮询、审阅和确认填写
 │  ├─ date-utils.js           # 日期拆分、投影与数值选项匹配
+├─ bridge/                    # 独立发布的 Local Bridge、Codex Host 与 MCP Server
 │  ├─ project-utils.js        # 项目分区、字段与安全新增动作识别
 │  ├─ safety-policy.js        # 谨慎填写策略
 │  ├─ message-policy.js       # 扩展消息权限策略

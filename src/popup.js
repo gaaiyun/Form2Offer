@@ -4,6 +4,7 @@ const els = {
   status: document.getElementById("status"),
   openOptions: document.getElementById("openOptions"),
   startAutofillBtn: document.getElementById("startAutofillBtn"),
+  startAgentBtn: document.getElementById("startAgentBtn"),
   showProfilePanelBtn: document.getElementById("showProfilePanelBtn"),
   clearMarksBtn: document.getElementById("clearMarksBtn"),
   rememberAnswersBtn: document.getElementById("rememberAnswersBtn"),
@@ -38,6 +39,9 @@ let capturedJobCandidates = [];
 els.openOptions.addEventListener("click", () => chrome.runtime.openOptionsPage());
 els.startAutofillBtn.addEventListener("click", () => {
   void startAutofill();
+});
+els.startAgentBtn.addEventListener("click", () => {
+  void startAgentTask();
 });
 els.showProfilePanelBtn.addEventListener("click", () => {
   void showProfilePanel();
@@ -340,6 +344,32 @@ async function startAutofill() {
   } catch (error) {
     setStatus(`开始填写失败：${error.message}`, true);
     await syncRuntimeState({ updateStatus: false });
+  }
+}
+
+async function startAgentTask() {
+  els.startAgentBtn.disabled = true;
+  els.startAgentBtn.textContent = "正在创建任务...";
+  try {
+    const [tab] = await queryTabs({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("没有找到当前招聘网页。");
+    const response = await sendToActiveTab({ type: "OJAF_GET_AGENT_SNAPSHOT" });
+    const session = await sendRuntimeMessage({
+      type: "OJAF_AGENT_CREATE_SESSION",
+      payload: { tabId: tab.id, snapshot: response?.data || {} }
+    });
+    await chrome.tabs.create({
+      url: chrome.runtime.getURL(`src/agent-review.html?session=${encodeURIComponent(session.id)}`)
+    });
+    setStatus("本地 Agent 任务已创建。方案会在独立页面显示，确认前不会修改招聘网页。");
+  } catch (error) {
+    const suffix = /配对|fetch|Failed|Bridge/i.test(error.message)
+      ? " 请先在设置页启动并配对 Local Bridge。"
+      : "";
+    setStatus(`创建本地 Agent 任务失败：${error.message}${suffix}`, true);
+  } finally {
+    els.startAgentBtn.disabled = false;
+    els.startAgentBtn.textContent = "交给本地 Agent";
   }
 }
 

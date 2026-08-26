@@ -13,7 +13,7 @@
         <div>
           <p class="eyebrow">FORM2OFFER / 网申助手</p>
           <h1>维护一份完整网申档案</h1>
-          <p class="hint">资料保存在当前浏览器扩展的本地存储中，不会同步到云端。AI 只辅助识别网页字段和资料路径，不读取履历具体值；所有申请仍由你检查并提交。</p>
+          <p class="hint">资料保存在当前浏览器扩展的本地存储中，不会同步到云端。内置 AI 只识别字段与资料路径；可选 Local Bridge 只读取你批准并脱敏的本地文件。所有申请仍由你检查并提交。</p>
         </div>
       </header>
 
@@ -76,10 +76,31 @@
             <div class="privacy-title">隐私边界</div>
             <p>资料只保存在本机浏览器里。</p>
             <p>AI 只辅助识别表单字段，不接收具体资料值。</p>
+            <p>本地 Agent 只读取 Bridge 白名单中的脱敏资料。</p>
             <p>插件不会自动提交表单。</p>
           </div>
           <div id="profileTips" class="profile-tips"></div>
         </aside>
+      </section>
+
+      <section class="card agent-settings" aria-labelledby="agentSettingsTitle">
+        <p class="eyebrow">本地 Agent（可选）</p>
+        <h2 id="agentSettingsTitle">连接 Form2Offer Local Bridge</h2>
+        <p class="hint">Bridge 仅监听本机回环地址。Codex 自动模式会调用本机 <code>codex exec</code>；MCP 领取模式可由 Work Buddy、Claude Code 或其他 MCP Client 主动处理。使用哪个 Agent，就由该 Agent 的模型提供商决定资料是否离开本机。</p>
+        <div class="grid settings-grid">
+          <label>Bridge 地址<input id="agentBridgeUrl" type="url" value="http://127.0.0.1:43127" /></label>
+          <label>默认 Agent<select id="agentMode"><option value="codex">Codex CLI 自动任务</option><option value="agent-pull">MCP Client 主动领取</option></select></label>
+          <label>任务超时（毫秒）<input id="agentTimeoutMs" type="number" min="15000" max="600000" step="1000" value="180000" /></label>
+          <label>一次性配对码<input id="agentPairCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="Bridge 窗口显示的 6 位码" /></label>
+        </div>
+        <div class="actions">
+          <button id="saveAgentConfig" type="button">保存设置</button>
+          <button id="checkAgentBridge" class="secondary" type="button">检测 Bridge</button>
+          <button id="pairAgentBridge" class="secondary" type="button">配对</button>
+          <button id="loadAgentSources" class="ghost" type="button">查看资料白名单</button>
+        </div>
+        <p id="agentFeedback" class="api-feedback" aria-live="polite">Local Bridge 未检测。</p>
+        <pre id="agentSources" class="api-preview" hidden></pre>
       </section>
 
       <section class="grid settings-grid">
@@ -199,6 +220,7 @@
     <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
     <script src="./safety-policy.js"></script>
+    <script src="./agent-bridge.js"></script>
     <script src="./options.js"></script>
   </body>
 </html>

@@ -2,6 +2,21 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)。
 
+## [0.11.0] - 2026-08-26
+
+### Added
+
+- 可选的 loopback-only Local Bridge，以及 Codex CLI 自动任务和 MCP Client 主动领取两种模式。
+- Agent 任务状态机、独立方案审阅页、逐项勾选确认和原标签页安全回写。
+- 五个 MCP 工具、Windows 发布包、G 盘数据目录和资料白名单配置。
+- Bridge、Codex 进程、MCP 协议及 Chromium Agent 闭环测试。
+
+### Security
+
+- 招聘网页快照移除已有值、私有 URL 部分和页面指令；Agent 资料目录排除直接身份信息、联系方式、住址、家庭、健康与政治面貌。
+- Bridge 只监听 `127.0.0.1`，使用扩展 Origin、一次性配对码、随机令牌、请求大小与会话过期限制。
+- 文件上传、验证码、敏感声明和最终提交不会成为 Agent 可执行项；未经用户确认不修改网页。
+
 ## [0.10.0] - 2026-08-25
 
 ### Added

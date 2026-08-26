@@ -30,6 +30,16 @@ const fields = {
   fillDeclarations: document.getElementById("fillDeclarations"),
   saveFillPolicyButton: document.getElementById("saveFillPolicy"),
   fillPolicyFeedback: document.getElementById("fillPolicyFeedback"),
+  agentBridgeUrl: document.getElementById("agentBridgeUrl"),
+  agentMode: document.getElementById("agentMode"),
+  agentTimeoutMs: document.getElementById("agentTimeoutMs"),
+  agentPairCode: document.getElementById("agentPairCode"),
+  saveAgentConfig: document.getElementById("saveAgentConfig"),
+  checkAgentBridge: document.getElementById("checkAgentBridge"),
+  pairAgentBridge: document.getElementById("pairAgentBridge"),
+  loadAgentSources: document.getElementById("loadAgentSources"),
+  agentFeedback: document.getElementById("agentFeedback"),
+  agentSources: document.getElementById("agentSources"),
   toast: document.getElementById("toast"),
   status: document.getElementById("status")
 };
@@ -608,6 +618,10 @@ document.getElementById("settingsForm").addEventListener("submit", async (event)
 });
 document.getElementById("refreshModels").addEventListener("click", refreshModelList);
 document.getElementById("testConnection").addEventListener("click", testConnection);
+fields.saveAgentConfig.addEventListener("click", () => void saveAgentSettings());
+fields.checkAgentBridge.addEventListener("click", () => void checkAgentBridge());
+fields.pairAgentBridge.addEventListener("click", () => void pairAgentBridge());
+fields.loadAgentSources.addEventListener("click", () => void loadAgentSources());
 fields.saveProfileButton.addEventListener("click", saveProfile);
 document.getElementById("exportProfile").addEventListener("click", exportProfile);
 document.getElementById("importProfile").addEventListener("click", () => fields.profileFileInput.click());
@@ -655,6 +669,7 @@ async function loadSettings() {
     const settings = await sendRuntimeMessage({ type: "OJAF_GET_SETTINGS" });
     applyApiConfig(settings.apiConfig);
     applyFillPolicy(settings.fillPolicy);
+    applyAgentConfig(settings.agentConfig || globalThis.Form2OfferAgentBridge.DEFAULT_AGENT_CONFIG);
     setFillPolicySaved("填写策略已加载。", settings.fillPolicy);
     setApiSaved("API 设置已加载，当前没有未保存修改。");
     renderProfileNav();
@@ -668,6 +683,85 @@ async function loadSettings() {
   } catch (error) {
     setStatus(`加载失败：${error.message}`, true);
   }
+}
+
+function getAgentConfigSnapshot() {
+  return globalThis.Form2OfferAgentBridge.normalizeAgentConfig({
+    bridgeUrl: fields.agentBridgeUrl.value,
+    mode: fields.agentMode.value,
+    timeoutMs: fields.agentTimeoutMs.value
+  });
+}
+
+function applyAgentConfig(config = {}) {
+  const normalized = globalThis.Form2OfferAgentBridge.normalizeAgentConfig(config);
+  fields.agentBridgeUrl.value = normalized.bridgeUrl;
+  fields.agentMode.value = normalized.mode;
+  fields.agentTimeoutMs.value = String(normalized.timeoutMs);
+  setAgentFeedback(config.token ? "已保存配对令牌；可检测 Bridge 或查看资料白名单。" : "尚未配对 Local Bridge。");
+}
+
+async function ensureAgentPermission(config) {
+  const origin = globalThis.Form2OfferAgentBridge.getRequiredHostPermission(config);
+  return requestOptionalPermissions({ origins: [origin] });
+}
+
+async function saveAgentSettings(options = {}) {
+  const config = getAgentConfigSnapshot();
+  if (options.requestPermission !== false) {
+    const granted = await ensureAgentPermission(config);
+    if (!granted) throw new Error("未授予访问本机 Bridge 的权限。");
+  }
+  await sendRuntimeMessage({ type: "OJAF_SAVE_AGENT_CONFIG", payload: config });
+  setAgentFeedback("本地 Agent 设置已保存。", false, true);
+  return config;
+}
+
+async function checkAgentBridge() {
+  setAgentBusy(true, "正在检测...");
+  try {
+    await saveAgentSettings();
+    const health = await sendRuntimeMessage({ type: "OJAF_AGENT_HEALTH" });
+    setAgentFeedback(`Bridge ${health.version || ""} 已连接；Codex ${health.agents?.codex ? "可用" : "未启用"}，MCP 可用。`, false, true);
+  } catch (error) { setAgentFeedback(`检测失败：${error.message}`, true); }
+  finally { setAgentBusy(false); }
+}
+
+async function pairAgentBridge() {
+  setAgentBusy(true, "正在配对...");
+  try {
+    const config = await saveAgentSettings();
+    const code = String(fields.agentPairCode.value || "").trim();
+    if (!/^\d{6}$/.test(code)) throw new Error("请输入 Bridge 窗口显示的 6 位配对码。");
+    await sendRuntimeMessage({ type: "OJAF_AGENT_PAIR", payload: { bridgeUrl: config.bridgeUrl, code } });
+    fields.agentPairCode.value = "";
+    setAgentFeedback("配对成功，令牌已安全保存在扩展后台。", false, true);
+  } catch (error) { setAgentFeedback(`配对失败：${error.message}`, true); }
+  finally { setAgentBusy(false); }
+}
+
+async function loadAgentSources() {
+  setAgentBusy(true, "正在读取白名单...");
+  try {
+    await saveAgentSettings();
+    const result = await sendRuntimeMessage({ type: "OJAF_AGENT_SOURCES" });
+    const sources = Array.isArray(result.sources) ? result.sources : [];
+    fields.agentSources.hidden = false;
+    fields.agentSources.textContent = sources.map((source) => `${source.available ? "✓" : "✗"} ${source.relativePath}${source.error ? ` — ${source.error}` : ""}`).join("\n") || "未配置资料源。";
+    setAgentFeedback(`已读取 ${sources.length} 个白名单资料源。`, false, true);
+  } catch (error) { setAgentFeedback(`读取失败：${error.message}`, true); }
+  finally { setAgentBusy(false); }
+}
+
+function setAgentBusy(busy, label = "") {
+  for (const button of [fields.saveAgentConfig, fields.checkAgentBridge, fields.pairAgentBridge, fields.loadAgentSources]) button.disabled = busy;
+  if (label) setAgentFeedback(label);
+}
+
+function setAgentFeedback(message, isError = false, success = false) {
+  fields.agentFeedback.textContent = message;
+  fields.agentFeedback.classList.toggle("error", isError);
+  fields.agentFeedback.classList.toggle("is-saved", success);
 }
 
 function applyApiConfig(config) {

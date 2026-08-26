@@ -1,4 +1,4 @@
-importScripts("safety-policy.js", "message-policy.js", "ai-privacy.js", "job-tracker.js", "answer-library.js");
+importScripts("safety-policy.js", "message-policy.js", "ai-privacy.js", "job-tracker.js", "answer-library.js", "agent-bridge.js");
 
 const { DEFAULT_FILL_POLICY, normalizeFillPolicy } = globalThis.Form2OfferSafetyPolicy;
 const { canHandleRuntimeMessage, isTrustedExtensionPage } = globalThis.Form2OfferMessagePolicy;
@@ -12,6 +12,11 @@ const {
   normalizeAnswerLibrary,
   mergeAnswerLibrary
 } = globalThis.Form2OfferAnswerLibrary;
+const {
+  DEFAULT_AGENT_CONFIG,
+  normalizeAgentConfig,
+  buildSessionPayload
+} = globalThis.Form2OfferAgentBridge;
 
 const MAX_AI_FIELD_COUNT = 300;
 const AI_REQUEST_TIMEOUT_MS = 90000;
@@ -53,8 +58,15 @@ const STORAGE_KEYS = {
   apiConfig: "apiConfig",
   fillPolicy: "fillPolicy",
   jobApplications: "jobApplications",
-  answerLibrary: "answerLibrary"
+  answerLibrary: "answerLibrary",
+  agentConfig: "agentConfig"
 };
+
+const AGENT_SESSION_TABS_KEY = "OJAF_AGENT_SESSION_TABS";
+const CONTENT_SCRIPT_FILES = [
+  "src/safety-policy.js", "src/date-utils.js", "src/project-utils.js", "src/profile-utils.js",
+  "src/job-tracker.js", "src/answer-library.js", "src/content.js"
+];
 
 const PROFILE_PANEL_STATE_KEY = "OJAF_PROFILE_PANEL_STATE";
 const MAX_PROFILE_PANEL_STATE_ITEMS = 20;
@@ -69,7 +81,8 @@ chrome.runtime.onInstalled.addListener(async () => {
     STORAGE_KEYS.apiConfig,
     STORAGE_KEYS.fillPolicy,
     STORAGE_KEYS.jobApplications,
-    STORAGE_KEYS.answerLibrary
+    STORAGE_KEYS.answerLibrary,
+    STORAGE_KEYS.agentConfig
   ]);
   const next = {};
 
@@ -91,6 +104,10 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   if (!Array.isArray(existing[STORAGE_KEYS.answerLibrary])) {
     next[STORAGE_KEYS.answerLibrary] = [];
+  }
+
+  if (!existing[STORAGE_KEYS.agentConfig]) {
+    next[STORAGE_KEYS.agentConfig] = DEFAULT_AGENT_CONFIG;
   }
 
   if (Object.keys(next).length > 0) {
@@ -169,6 +186,24 @@ async function handleMessage(message, sender = {}) {
       return deleteAnswerLibraryItem(message.payload || {});
     case "OJAF_CLEAR_ANSWER_LIBRARY":
       return clearAnswerLibrary();
+    case "OJAF_SAVE_AGENT_CONFIG":
+      return saveAgentConfig(message.payload || {});
+    case "OJAF_AGENT_HEALTH":
+      return requestBridge("/v1/health", { auth: false });
+    case "OJAF_AGENT_PAIR":
+      return pairBridge(message.payload || {});
+    case "OJAF_AGENT_SOURCES":
+      return requestBridge("/v1/sources");
+    case "OJAF_AGENT_CREATE_SESSION":
+      return createAgentSession(message.payload || {});
+    case "OJAF_AGENT_GET_SESSION":
+      return requestBridge(`/v1/sessions/${encodeURIComponent(message.payload?.sessionId || "")}`);
+    case "OJAF_AGENT_PLAN_PREVIEWS":
+      return getAgentPlanPreviews(message.payload || {});
+    case "OJAF_AGENT_CANCEL_SESSION":
+      return requestBridge(`/v1/sessions/${encodeURIComponent(message.payload?.sessionId || "")}/cancel`, { method: "POST", body: {} });
+    case "OJAF_APPLY_AGENT_PLAN":
+      return applyAgentPlan(message.payload || {});
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -179,18 +214,21 @@ async function getSettings(options = {}) {
     STORAGE_KEYS.profileV2,
     STORAGE_KEYS.apiConfig,
     STORAGE_KEYS.fillPolicy,
-    STORAGE_KEYS.answerLibrary
+    STORAGE_KEYS.answerLibrary,
+    STORAGE_KEYS.agentConfig
   ]);
   const apiConfig = normalizeApiConfig(values[STORAGE_KEYS.apiConfig]);
   const settings = {
     profileV2: normalizeProfileV2(values[STORAGE_KEYS.profileV2] || DEFAULT_PROFILE_V2),
     fillPolicy: normalizeFillPolicy(values[STORAGE_KEYS.fillPolicy]),
     answerLibrary: normalizeAnswerLibrary(values[STORAGE_KEYS.answerLibrary]),
-    aiConfigured: isAiApiConfigured(apiConfig)
+    aiConfigured: isAiApiConfigured(apiConfig),
+    agentConfigured: Boolean(values[STORAGE_KEYS.agentConfig]?.token)
   };
 
   if (options.includeApiConfig !== false) {
     settings.apiConfig = apiConfig;
+    settings.agentConfig = normalizeAgentConfig(values[STORAGE_KEYS.agentConfig] || DEFAULT_AGENT_CONFIG);
   }
   return settings;
 }
@@ -408,6 +446,112 @@ async function clearJobApplications() {
   const clearedCount = normalizeJobApplications(result[STORAGE_KEYS.jobApplications]).length;
   await chrome.storage.local.set({ [STORAGE_KEYS.jobApplications]: [] });
   return { cleared: true, clearedCount };
+}
+
+async function getAgentConfig() {
+  const values = await chrome.storage.local.get(STORAGE_KEYS.agentConfig);
+  return normalizeAgentConfig(values[STORAGE_KEYS.agentConfig] || DEFAULT_AGENT_CONFIG);
+}
+
+async function saveAgentConfig(payload = {}) {
+  const current = await getAgentConfig();
+  const next = normalizeAgentConfig({ ...current, ...payload });
+  await chrome.storage.local.set({ [STORAGE_KEYS.agentConfig]: next });
+  return { ...next, token: next.token ? "paired" : "" };
+}
+
+async function requestBridge(path, options = {}) {
+  const config = normalizeAgentConfig(options.config || await getAgentConfig());
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(config.timeoutMs, Number(options.timeoutMs) || 30000));
+  try {
+    const headers = { accept: "application/json" };
+    if (options.auth !== false) {
+      if (!config.token) throw new Error("Local Bridge 尚未配对。");
+      headers.authorization = `Bearer ${config.token}`;
+    }
+    if (options.body !== undefined) headers["content-type"] = "application/json";
+    const response = await fetch(`${config.bridgeUrl}${path}`, {
+      method: options.method || "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal,
+      cache: "no-store"
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || `Local Bridge 请求失败 (${response.status})。`);
+    }
+    return payload.data ?? payload;
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("Local Bridge 请求超时。");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function pairBridge(payload = {}) {
+  const current = await getAgentConfig();
+  const config = normalizeAgentConfig({ ...current, bridgeUrl: payload.bridgeUrl || current.bridgeUrl });
+  const result = await requestBridge("/v1/pair", {
+    config,
+    auth: false,
+    method: "POST",
+    body: { code: String(payload.code || "").trim() }
+  });
+  const next = normalizeAgentConfig({ ...config, token: result.token });
+  await chrome.storage.local.set({ [STORAGE_KEYS.agentConfig]: next });
+  return { paired: true };
+}
+
+async function createAgentSession(payload = {}) {
+  const tabId = Number(payload.tabId);
+  if (!Number.isInteger(tabId) || tabId <= 0) throw new Error("缺少有效的招聘网页标签页。");
+  const config = await getAgentConfig();
+  const request = buildSessionPayload(payload.snapshot || {}, payload.mode || config.mode);
+  if (request.scan.fields.length === 0) throw new Error("当前页面没有可交给 Agent 分析的表单字段。");
+  const session = await requestBridge("/v1/sessions", { method: "POST", body: request, timeoutMs: 30000 });
+  const stored = await chrome.storage.session.get(AGENT_SESSION_TABS_KEY);
+  const map = isPlainObject(stored[AGENT_SESSION_TABS_KEY]) ? stored[AGENT_SESSION_TABS_KEY] : {};
+  map[session.id] = tabId;
+  await chrome.storage.session.set({ [AGENT_SESSION_TABS_KEY]: map });
+  return session;
+}
+
+async function applyAgentPlan(payload = {}) {
+  const sessionId = String(payload.sessionId || "");
+  const session = await requestBridge(`/v1/sessions/${encodeURIComponent(sessionId)}`);
+  if (session.state !== "review_ready" || !session.plan) throw new Error("Agent 方案尚未准备好。");
+  const selected = new Set((Array.isArray(payload.fieldIds) ? payload.fieldIds : []).map(String));
+  const items = session.plan.items.filter((item) => selected.has(item.fieldId));
+  const stored = await chrome.storage.session.get(AGENT_SESSION_TABS_KEY);
+  const tabId = Number(stored[AGENT_SESSION_TABS_KEY]?.[sessionId]);
+  if (!Number.isInteger(tabId)) throw new Error("原招聘网页标签页已丢失，请重新创建任务。");
+  await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_SCRIPT_FILES });
+  return sendMessageToTab(tabId, { type: "OJAF_APPLY_AGENT_PLAN", payload: { items } });
+}
+
+async function getAgentPlanPreviews(payload = {}) {
+  const sessionId = String(payload.sessionId || "");
+  const session = await requestBridge(`/v1/sessions/${encodeURIComponent(sessionId)}`);
+  if (!session.plan) return { previews: {} };
+  const stored = await chrome.storage.session.get(AGENT_SESSION_TABS_KEY);
+  const tabId = Number(stored[AGENT_SESSION_TABS_KEY]?.[sessionId]);
+  if (!Number.isInteger(tabId)) return { previews: {} };
+  await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_SCRIPT_FILES });
+  return sendMessageToTab(tabId, { type: "OJAF_RESOLVE_AGENT_PREVIEWS", payload: { items: session.plan.items } });
+}
+
+function sendMessageToTab(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      const error = chrome.runtime.lastError;
+      if (error) return reject(new Error(error.message));
+      if (!response?.ok) return reject(new Error(response?.error || "招聘网页处理失败。"));
+      resolve(response.data);
+    });
+  });
 }
 
 async function getAnswerLibrary() {

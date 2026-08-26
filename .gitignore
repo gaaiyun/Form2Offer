@@ -6,6 +6,7 @@ dist/
 build/
 coverage/
 output/playwright/
+output/
 .playwright-cli/
 __pycache__/
 *.py[cod]

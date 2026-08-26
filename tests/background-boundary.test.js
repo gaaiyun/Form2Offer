@@ -9,6 +9,7 @@ const messagePolicy = require("../src/message-policy.js");
 const aiPrivacy = require("../src/ai-privacy.js");
 const jobTracker = require("../src/job-tracker.js");
 const answerLibrary = require("../src/answer-library.js");
+const agentBridge = require("../src/agent-bridge.js");
 
 const backgroundSource = fs.readFileSync(path.join(__dirname, "..", "src", "background.js"), "utf8");
 
@@ -98,6 +99,7 @@ function createBackgroundHarness(options = {}) {
     context.Form2OfferAiPrivacy = aiPrivacy;
     context.Form2OfferJobTracker = jobTracker;
     context.Form2OfferAnswerLibrary = answerLibrary;
+    context.Form2OfferAgentBridge = agentBridge;
   };
 
   vm.runInNewContext(backgroundSource, context, { filename: "src/background.js" });

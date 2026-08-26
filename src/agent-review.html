@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>本地 Agent 方案 - Form2Offer</title>
+    <link rel="stylesheet" href="./agent-review.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div><p class="kicker">FORM2OFFER LOCAL AGENT</p><h1>填写方案审阅</h1></div>
+        <button id="cancelBtn" class="ghost" type="button">取消任务</button>
+      </header>
+      <section class="notice">方案确认前不会修改招聘网页。文件上传、验证码、敏感声明和最终提交不会执行。</section>
+      <section class="card">
+        <div id="stage" class="stage">正在连接 Local Bridge...</div>
+        <p id="summary" class="summary"></p>
+        <div id="warnings" class="warnings"></div>
+      </section>
+      <section id="planCard" class="card" hidden>
+        <div class="plan-head"><h2>建议填写项</h2><label><input id="selectAll" type="checkbox" checked /> 全选普通字段</label></div>
+        <div id="items" class="items"></div>
+        <button id="applyBtn" type="button">确认并填写所选字段</button>
+        <p id="applyFeedback" class="feedback" aria-live="polite"></p>
+      </section>
+    </main>
+    <script src="./agent-review.js"></script>
+  </body>
+</html>

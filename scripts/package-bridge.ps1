@@ -3,9 +3,9 @@ param([switch]$Force)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$manifestPath = Join-Path $projectRoot 'manifest.json'
-$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-$releaseName = "Form2Offer-v$($manifest.version)"
+$bridgeRoot = Join-Path $projectRoot 'bridge'
+$packageJson = Get-Content -Raw -LiteralPath (Join-Path $bridgeRoot 'package.json') | ConvertFrom-Json
+$releaseName = "Form2Offer-Bridge-win-x64-v$($packageJson.version)"
 $distRoot = Join-Path $projectRoot 'dist'
 $releaseDir = Join-Path $distRoot $releaseName
 $zipPath = Join-Path $distRoot "$releaseName.zip"
@@ -19,13 +19,15 @@ foreach ($target in @($releaseDir, $zipPath, $checksumPath)) {
 }
 
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $projectRoot 'manifest.json') -Destination $releaseDir
+New-Item -ItemType Directory -Path (Join-Path $releaseDir 'bin') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $releaseDir 'src') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $bridgeRoot 'package.json') -Destination $releaseDir
+Copy-Item -LiteralPath (Join-Path $bridgeRoot 'README.md') -Destination $releaseDir
+Copy-Item -LiteralPath (Join-Path $bridgeRoot 'start-bridge.ps1') -Destination $releaseDir
+Copy-Item -LiteralPath (Join-Path $bridgeRoot 'bin\form2offer-bridge.js') -Destination (Join-Path $releaseDir 'bin')
+Copy-Item -Path (Join-Path $bridgeRoot 'src\*') -Destination (Join-Path $releaseDir 'src')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $releaseDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'NOTICE') -Destination $releaseDir
-Copy-Item -LiteralPath (Join-Path $projectRoot 'PRIVACY.md') -Destination $releaseDir
-Copy-Item -LiteralPath (Join-Path $projectRoot 'sample-profile.json') -Destination $releaseDir
-Copy-Item -LiteralPath (Join-Path $projectRoot 'src') -Destination $releaseDir -Recurse
-Copy-Item -LiteralPath (Join-Path $projectRoot 'icons') -Destination $releaseDir -Recurse
 
 Compress-Archive -Path (Join-Path $releaseDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()

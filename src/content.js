@@ -8184,6 +8184,95 @@
     return { entries, scannedCount: controls.length };
   }
 
+  async function getAgentSnapshot() {
+    await refreshCurrentProfile({ force: true });
+    const scan = await scanForm();
+    return {
+      scan,
+      profileCatalog: buildProfileCatalogFromEntries(getCurrentProfileEntries())
+    };
+  }
+
+  async function applyConfirmedAgentPlan(payload = {}) {
+    const runId = startAutofillRun("填写本地 Agent 方案");
+    if (!runId) return { ok: false, reason: "busy" };
+    try {
+      await refreshCurrentProfile({ force: true });
+      const scan = await scanForm();
+      const entries = getCurrentProfileEntries();
+      const candidates = [];
+      for (const item of (Array.isArray(payload.items) ? payload.items : []).slice(0, 300)) {
+        const field = getScanFieldById(scan, item?.fieldId);
+        if (!field || !field.canFill) continue;
+        const entry = item.sourcePath ? getProfileEntryByPath(entries, item.sourcePath) : null;
+        let candidate = null;
+        if (entry?.hasValue) {
+          candidate = createAutofillCandidate(field, entry, Math.max(70, Math.round(Number(item.confidence || 0) * 100)));
+        } else if (!item.sourcePath && String(item.value || "").trim()) {
+          const value = String(item.value).trim().slice(0, 8000);
+          const fieldLabel = field.inferredLabel || inferFieldLabel(field);
+          const fieldCategory = field.inferredCategory || inferMatchSection(field);
+          candidate = {
+            id: `agent_${field.fieldId}`,
+            fieldId: field.fieldId,
+            field,
+            fieldLabel,
+            fieldCategory,
+            sourceLabel: "本地 Agent 建议",
+            sourceCategory: "网申问答",
+            sourceSubsection: "",
+            sourceItemId: "",
+            value,
+            preview: formatCandidateValue(value, 140),
+            confidence: Math.max(0, Math.min(1, Number(item.confidence || 0))),
+            writeMode: guessAutofillValueFieldType(field),
+            mappingSource: "本地 Agent（已确认）",
+            reason: normalizeText(item.reason || "", 160),
+            shouldAutoFill: true,
+            canAutoFill: true,
+            alreadyMatches: valuesLookEquivalent(field.currentValue, value),
+            warning: "",
+            score: Math.round(Number(item.confidence || 0) * 100)
+          };
+        }
+        if (!candidate) continue;
+        candidate.mappingSource = "本地 Agent（已确认）";
+        candidate.reason = normalizeText(item.reason || candidate.reason || "", 160);
+        candidate.shouldAutoFill = true;
+        candidate.canAutoFill = true;
+        const classification = globalThis.Form2OfferSafetyPolicy?.classifyCandidate?.(candidate);
+        if (classification?.risk !== "standard") continue;
+        candidates.push(candidate);
+      }
+      const plan = applyCurrentSafetyPolicy({
+        createdAt: new Date().toISOString(),
+        mappingSource: "本地 Agent（已确认）",
+        page: { url: scan.url, title: scan.title, hostname: scan.hostname },
+        scan,
+        entries,
+        candidates,
+        autoFillIds: new Set(candidates.map((candidate) => candidate.id))
+      });
+      const ids = new Set(plan.candidates.filter((candidate) => candidate.shouldAutoFill).map((candidate) => candidate.id));
+      if (ids.size === 0) return { ok: false, reason: "没有通过本地安全策略的普通字段。" };
+      return await applyAutofillPlan(plan, ids, { runId });
+    } finally {
+      clearAutofillProgress();
+    }
+  }
+
+  async function resolveAgentPlanPreviews(payload = {}) {
+    await refreshCurrentProfile({ force: true });
+    const entries = getCurrentProfileEntries();
+    const previews = {};
+    for (const item of (Array.isArray(payload.items) ? payload.items : []).slice(0, 300)) {
+      const entry = item.sourcePath ? getProfileEntryByPath(entries, item.sourcePath) : null;
+      const value = entry?.hasValue ? entry.value : String(item.value || "").trim();
+      if (item.fieldId && value) previews[item.fieldId] = formatCandidateValue(value, 500);
+    }
+    return { previews };
+  }
+
   async function handleContentMessage(message) {
     if (message.type === "OJAF_SHOW_PROFILE_PANEL") {
       showProfilePanel();
@@ -8214,6 +8303,18 @@
 
     if (message.type === "OJAF_COLLECT_OPEN_ANSWERS") {
       return collectOpenQuestionAnswers();
+    }
+
+    if (message.type === "OJAF_GET_AGENT_SNAPSHOT") {
+      return getAgentSnapshot();
+    }
+
+    if (message.type === "OJAF_APPLY_AGENT_PLAN") {
+      return applyConfirmedAgentPlan(message.payload || {});
+    }
+
+    if (message.type === "OJAF_RESOLVE_AGENT_PREVIEWS") {
+      return resolveAgentPlanPreviews(message.payload || {});
     }
 
     return undefined;

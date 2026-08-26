@@ -13,3 +13,5 @@ Include the affected version, impact, minimal reproduction, and a suggested miti
 ## Security boundaries
 
 Form2Offer does not claim to protect a compromised browser profile or operating system. Local extension storage is not passphrase encrypted. File upload, CAPTCHA handling, final submission, and recruitment declarations remain user-controlled actions.
+
+The optional Local Bridge binds only to `127.0.0.1`, validates Chrome extension origins and bearer tokens, limits request bodies, expires in-memory sessions, and resolves resume files through an exact allowlist. Do not expose its port through a reverse proxy, port forward, tunnel, or firewall rule.
