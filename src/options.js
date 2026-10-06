@@ -427,7 +427,7 @@ const STRUCTURED_RESUME_SECTIONS = [
     kind: "repeat",
     itemLabel: "干部任职经历",
     defaultItems: 1,
-    fields: profileFields(["开始时间", "结束时间", "组织名称", "职位", "工作内容", "本人职责"])
+    fields: profileFields(["开始时间", "结束时间", "组织名称", "职位", "工作内容", "本人职责", "工作成果"])
   },
   {
     key: "awards",
@@ -540,7 +540,7 @@ const STRUCTURED_RESUME_SECTIONS = [
     key: "self",
     title: "自我描述",
     kind: "simple",
-    fields: profileFields(["自我描述", "自我评价"])
+    fields: profileFields(["自我描述", "自我评价", "自我介绍"])
   },
   {
     key: "declarations",
@@ -1666,7 +1666,7 @@ function renderStructuredField(field, value = "") {
   if (field.type === "textarea") {
     control = `<textarea id="${id}" data-field-label="${escapeHtml(field.label)}" rows="${field.rows || 4}" placeholder="${escapeHtml(field.placeholder || "")}">${escapeHtml(valueText)}</textarea>`;
   } else if (field.type === "select") {
-    const options = (field.options || ["", "是", "否"])
+    const options = globalThis.Form2OfferProfileUtils.getProfileSelectOptions(field.options, valueText)
       .map((option) => {
         const selected = String(option) === valueText ? " selected" : "";
         return `<option value="${escapeHtml(option)}"${selected}>${escapeHtml(option)}</option>`;
@@ -1674,7 +1674,8 @@ function renderStructuredField(field, value = "") {
       .join("");
     control = `<select id="${id}" data-field-label="${escapeHtml(field.label)}">${options}</select>`;
   } else {
-    control = `<input id="${id}" data-field-label="${escapeHtml(field.label)}" type="${escapeHtml(field.type || "text")}" value="${escapeHtml(valueText)}" placeholder="${escapeHtml(field.placeholder || "")}" />`;
+    const inputType = globalThis.Form2OfferProfileUtils.getProfileInputType(field.type, valueText);
+    control = `<input id="${id}" data-field-label="${escapeHtml(field.label)}" type="${escapeHtml(inputType)}" value="${escapeHtml(valueText)}" placeholder="${escapeHtml(field.placeholder || "")}" />`;
   }
 
   return `

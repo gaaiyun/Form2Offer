@@ -1,5 +1,5 @@
 (() => {
-  const SCRIPT_VERSION = "0.17.0-tracker-pipeline";
+  const SCRIPT_VERSION = "0.18.0-focus-fill";
 
   if (window.__OJAF_AUTOFILL_VERSION__ === SCRIPT_VERSION) {
     return;
@@ -41,6 +41,8 @@
   let currentAiConfigured = false;
   let currentProfileLoadPromise = null;
   let currentSiteAdapter = null;
+  let focusedPageControl = null;
+  let manualFillInProgress = false;
   let sidebarFilter = "";
   let activeProfileCategory = "";
   let autofillInProgress = false;
@@ -56,6 +58,7 @@
     "textarea",
     "select",
     '[contenteditable="true"]',
+    '[contenteditable="plaintext-only"]',
     '[role="textbox"]',
     '[role="combobox"]',
     '[role="radio"]',
@@ -161,11 +164,11 @@
       name: "智联招聘",
       urlPattern: /(?:^|\.)zhaopin\.com$/i,
       confidence: 0.83,
-      indicators: [".ant-form-item", "[class*='resume-edit']", "[class*='questionnaire']", "[class*='form-item']"],
-      containerSelector: ".ant-form-item,[class*='form-item'],[class*='resume-field'],[class*='field-row']",
-      labelSelector: ".ant-form-item-label,label,[class*='field-label'],[class*='label']",
-      sectionSelector: ".ant-card-head-title,[class*='module-title'],[class*='resume-title'],[class*='section-title'],h2,h3,h4",
-      repeatItemSelector: ".ant-card,[class*='resume-module'],[class*='resume-item'],[class*='list-item']",
+      indicators: [".el-form", ".apply-module", ".scrd-web--form", ".ant-form-item", "[class*='resume-edit']", "[class*='questionnaire']", "[class*='form-item']"],
+      containerSelector: ".el-form-item,.apply-form-input,.apply-form-date,.apply-form-select,.ant-form-item,[class*='form-item'],[class*='resume-field'],[class*='field-row']",
+      labelSelector: ".el-form-item__label,.form-content--title,.ant-form-item-label,label,[class*='field-label'],[class*='label']",
+      sectionSelector: ".form-content--title,.apply-module__body > div:first-child,[class*='module-title'],[class*='resume-title'],[class*='section-title'],h2,h3,h4",
+      repeatItemSelector: ".apply-module__form,.el-form,.ant-card,[class*='resume-module'],[class*='resume-item'],[class*='list-item']",
       saveLabels: ["保存", "确定", "下一步", "完成"],
       editLabels: ["编辑", "修改", "完善"]
     },
@@ -2164,7 +2167,8 @@
         getDataAttributeLabelText(element) ||
         getAdapterLabelText(element) ||
         getWrappingLabel(element) ||
-        getAriaLabelText(element)
+        getAriaLabelText(element) ||
+        globalThis.Form2OfferProfileUtils?.getAutocompleteFieldLabel(element.getAttribute("autocomplete"))
     );
     const nearbyText = getNearbyText(element);
     const label = improveFieldLabel(element, rawLabel, nearbyText);
@@ -2657,6 +2661,323 @@
     };
   }
 
+  function isZhaopinStructuredResumePage() {
+    return /(?:^|\.)zhaopin\.com$/i.test(location.hostname || "") &&
+      Boolean(document.querySelector(".apply-module .scrd-web--form,.apply-module .el-form"));
+  }
+
+  function getZhaopinInternshipModule() {
+    return Array.from(document.querySelectorAll(".apply-module")).find((module) =>
+      /实习经历/.test(compactText(getElementText(module.querySelector(".form-content--title,.apply-module__body"))))
+    ) || null;
+  }
+
+  function getZhaopinStudentModule() {
+    return Array.from(document.querySelectorAll(".apply-module")).find((module) =>
+      /在校职务|校园职务|学生干部/.test(compactText(getElementText(module.querySelector(".form-content--title,.apply-module__body"))))
+    ) || null;
+  }
+
+  function getZhaopinEditableForms(module) {
+    return Array.from(module?.querySelectorAll?.("form.scrd-web--form-edit,.apply-module__form form") || [])
+      .filter((form) => isVisible(form) && Boolean(form.querySelector(
+        'input:not([type="hidden"]),textarea,select,[contenteditable="true"]'
+      )));
+  }
+
+  function getZhaopinFormField(form, pattern) {
+    const item = Array.from(form?.querySelectorAll?.(".el-form-item") || []).find((candidate) =>
+      pattern.test(compactText(getElementText(candidate.querySelector(".el-form-item__label,label"))))
+    );
+    return item?.querySelector?.('input:not([type="hidden"]),textarea,select,[contenteditable="true"]') || null;
+  }
+
+  function getZhaopinHeaderAddControl(module) {
+    return Array.from(module?.querySelectorAll?.(".form-content--title-box .icon-box,.icon-box") || [])
+      .filter((control) => isVisible(control) && !/disabled/i.test(String(control.className || "")))
+      .find((control) => /^添加$/.test(compactText(getElementText(control)))) || null;
+  }
+
+  function getZhaopinSaveControl(form) {
+    return Array.from(form?.querySelectorAll?.("button,[role='button']") || [])
+      .filter((button) => isVisible(button) && !button.disabled)
+      .find((button) => /添\s*加/.test(getButtonText(button)) && !/取消/.test(getButtonText(button))) || null;
+  }
+
+  function buildZhaopinBatchCandidate(element, label, value, writeMode, category = "实习经历") {
+    const field = buildFieldMeta(element);
+    field.label = label;
+    field.inferredLabel = label;
+    field.inferredCategory = category;
+    field.section = category;
+    field.groupText = category;
+    return {
+      id: `zhaopin_batch_${field.fieldId}`,
+      fieldId: field.fieldId,
+      field,
+      fieldLabel: label,
+      fieldCategory: category,
+      sourceLabel: label,
+      sourceCategory: category,
+      sourceSubsection: "",
+      sourceItemId: "",
+      value,
+      preview: formatCandidateValue(value, 140),
+      confidence: 1,
+      writeMode,
+      mappingSource: "本地资料批量填写",
+      reason: `字段名与智联${category}表单精确匹配`,
+      shouldAutoFill: true,
+      canAutoFill: true,
+      alreadyMatches: valuesLookEquivalent(getControlCurrentValue(element), value),
+      warning: "",
+      score: 100
+    };
+  }
+
+  async function fillZhaopinBatchField(element, label, value, writeMode, results, category = "实习经历") {
+    if (!element || !String(value || "").trim()) {
+      return false;
+    }
+    const candidate = buildZhaopinBatchCandidate(element, label, value, writeMode, category);
+    const current = getControlCurrentValue(element);
+    if (current && !valuesLookEquivalent(current, value)) {
+      markElement(element, "uncertain", `${label}已有内容，未覆盖`);
+      results.skipped += 1;
+      return false;
+    }
+    const classification = globalThis.Form2OfferSafetyPolicy?.classifyCandidate?.(candidate);
+    if (classification?.risk && classification.risk !== "standard") {
+      markElement(element, "uncertain", `${label}需要人工确认`);
+      results.skipped += 1;
+      return false;
+    }
+    const fillResult = candidate.alreadyMatches
+      ? { ok: true }
+      : await fillElementSmart(element, value, candidate.field, candidate);
+    if (fillResult?.ok) {
+      markElement(element, "filled", `自动填写: ${label}`);
+      results.filled += 1;
+      return true;
+    }
+    markElement(element, "uncertain", `待处理: ${label}${fillResult?.reason ? `（${fillResult.reason}）` : ""}`);
+    results.failed += 1;
+    return false;
+  }
+
+  async function waitForZhaopinFormCount(module, expectedCount) {
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const forms = getZhaopinEditableForms(module);
+      if (forms.length >= expectedCount) {
+        return forms;
+      }
+      await sleep(80);
+    }
+    return getZhaopinEditableForms(module);
+  }
+
+  async function runZhaopinStructuredAutofill(options = {}) {
+    if (!isZhaopinStructuredResumePage()) {
+      return { handled: false };
+    }
+    const profileUtils = globalThis.Form2OfferProfileUtils;
+    const items = Array.isArray(currentProfileV2?.sections?.internship?.items)
+      ? currentProfileV2.sections.internship.items.filter((item) => profileUtils?.isPopulatedItem?.(item))
+      : [];
+    const module = getZhaopinInternshipModule();
+    if (!module || items.length === 0) {
+      return { handled: false };
+    }
+
+    const results = { filled: 0, failed: 0, skipped: 0, pendingDates: 0, processed: 0 };
+    const desiredItems = items.slice(0, 6);
+    setAutofillProgress("智联批量填写", 45, `准备处理 ${desiredItems.length} 段实习经历`);
+
+    for (let index = 0; index < desiredItems.length; index += 1) {
+      if (options.runId && !isCurrentAutofillRun(options.runId)) {
+        return { handled: true, ok: false, reason: "cancelled", ...results };
+      }
+
+      let forms = getZhaopinEditableForms(module);
+      if (forms.length === 0) {
+        return { handled: true, ok: false, reason: "智联实习表单未打开", ...results };
+      }
+      if (index > 0) {
+        const addControl = getZhaopinHeaderAddControl(module);
+        if (!addControl) {
+          setProfilePanelStatus(`已处理 ${results.processed} 段实习，新增第 ${index + 1} 段需要页面手动确认。`, true);
+          break;
+        }
+        clickActionElement(addControl);
+        forms = await waitForZhaopinFormCount(module, forms.length + 1);
+        if (forms.length < index + 1) {
+          setProfilePanelStatus(`已处理 ${results.processed} 段实习，页面未打开第 ${index + 1} 段表单。`, true);
+          break;
+        }
+      }
+
+      const form = forms.at(-1);
+      const values = desiredItems[index]?.values && typeof desiredItems[index].values === "object"
+        ? desiredItems[index].values
+        : {};
+      const company = values["公司"] || values["公司名称"] || values["单位名称"];
+      const position = values["职位"] || values["职位名称"] || values["岗位"];
+      const content = String(values["工作内容"] || values["工作内容描述"] || values["工作职责"] || "").slice(0, 1000);
+      const start = values["开始时间"] || values["起始时间"] || values["开始日期"] || "";
+      const end = values["结束时间"] || values["截止时间"] || values["结束日期"] || "";
+      const duration = profileUtils?.getInternshipDurationLabel?.(start, end) || "";
+      await fillZhaopinBatchField(getZhaopinFormField(form, /公司名称|单位名称|公司/), "公司名称", company, "text", results);
+      await fillZhaopinBatchField(getZhaopinFormField(form, /^职位$|职位名称|岗位/), "职位", position, "text", results);
+      await fillZhaopinBatchField(getZhaopinFormField(form, /任职期间的具体工作内容|工作内容|工作职责/), "任职期间的具体工作内容", content, "text", results);
+
+      for (const [pattern, label, value] of [[/开始时间/, "开始时间", start], [/结束时间/, "结束时间", end]]) {
+        const element = getZhaopinFormField(form, pattern);
+        if (!element || !value) continue;
+        const parsed = globalThis.Form2OfferDateUtils?.parseDateParts?.(value) || {};
+        if (!parsed.day) {
+          markElement(element, "uncertain", `${label}只有年月，网站要求具体日期`);
+          results.pendingDates += 1;
+          results.skipped += 1;
+          continue;
+        }
+        await fillZhaopinBatchField(element, label, value, "date", results);
+      }
+
+      const durationField = getZhaopinFormField(form, /任职时长|实习时长|工作时长/);
+      if (durationField && duration) {
+        await fillZhaopinBatchField(durationField, "任职时长", duration, "choice", results);
+      }
+
+      const saveControl = getZhaopinSaveControl(form);
+      if (!saveControl) {
+        setProfilePanelStatus(`第 ${index + 1} 段实习已填写，但页面未找到该段的保存按钮。`, true);
+        break;
+      }
+      clickActionElement(saveControl);
+      await sleep(180);
+      results.processed += 1;
+      setAutofillProgress("智联批量填写", 45 + Math.round(((index + 1) / desiredItems.length) * 45), `已处理 ${index + 1}/${desiredItems.length} 段实习`);
+    }
+
+    const pending = results.failed + results.skipped;
+    const summary = {
+      attempted: results.filled + results.failed,
+      filled: results.filled,
+      failed: results.failed,
+      skipped: results.skipped,
+      pending,
+      total: results.filled + pending,
+      message: "智联实习经历已批量填写；日期只有年月的条目需要人工选择具体日期，不会擅自补日期。",
+      aiUsage: getAutofillAiSnapshot()
+    };
+    setAutofillSummary(summary);
+    setProfilePanelStatus(`智联批量填写完成：已填写 ${results.filled} 项，待处理 ${pending} 项。`);
+    await persistProfilePanelState(getProfilePanelStateSnapshot());
+    return { handled: true, ok: true, ...results, pending, total: summary.total, summary };
+  }
+
+  async function runZhaopinStudentStructuredAutofill(options = {}) {
+    if (!isZhaopinStructuredResumePage()) {
+      return { handled: false };
+    }
+    const profileUtils = globalThis.Form2OfferProfileUtils;
+    const items = Array.isArray(currentProfileV2?.sections?.student?.items)
+      ? currentProfileV2.sections.student.items.filter((item) => profileUtils?.isPopulatedItem?.(item))
+      : [];
+    const module = getZhaopinStudentModule();
+    if (!module || items.length === 0) {
+      return { handled: false };
+    }
+
+    const results = { filled: 0, failed: 0, skipped: 0, pendingDates: 0, processed: 0 };
+    const desiredItems = items.slice(0, 6);
+    setAutofillProgress("智联批量填写", 45, `准备处理 ${desiredItems.length} 段在校职务`);
+
+    for (let index = 0; index < desiredItems.length; index += 1) {
+      if (options.runId && !isCurrentAutofillRun(options.runId)) {
+        return { handled: true, ok: false, reason: "cancelled", ...results };
+      }
+
+      let forms = getZhaopinEditableForms(module);
+      if (forms.length === 0 && index === 0) {
+        return { handled: true, ok: false, reason: "智联在校职务表单未打开", ...results };
+      }
+      if (index > 0) {
+        const addControl = getZhaopinHeaderAddControl(module);
+        if (!addControl) {
+          setProfilePanelStatus(`已处理 ${results.processed} 段在校职务，新增第 ${index + 1} 段需要页面手动确认。`, true);
+          break;
+        }
+        clickActionElement(addControl);
+        forms = await waitForZhaopinFormCount(module, 1);
+        if (forms.length < 1) {
+          setProfilePanelStatus(`已处理 ${results.processed} 段在校职务，页面未打开第 ${index + 1} 段表单。`, true);
+          break;
+        }
+      }
+
+      const form = forms[0];
+      const values = desiredItems[index]?.values && typeof desiredItems[index].values === "object"
+        ? desiredItems[index].values
+        : {};
+      const department = values["部门"] || values["组织名称"] || values["组织"] || values["社团/组织"];
+      const position = values["职位"] || values["职务"] || values["岗位"];
+      const work = values["工作内容"] || values["活动内容"] || values["任职内容"] || "";
+      const result = values["工作成果"] || values["活动成果"] || values["成果"] || "";
+      const content = [work, result].filter(Boolean).join("。 ").slice(0, 1000);
+      const start = values["开始时间"] || values["起始时间"] || values["开始日期"] || "";
+      const end = values["结束时间"] || values["截止时间"] || values["结束日期"] || "";
+      const duration = profileUtils?.getCampusDurationLabel?.(start, end) || "";
+      await fillZhaopinBatchField(getZhaopinFormField(form, /部门|组织名称|组织/), "部门", department, "text", results, "在校职务");
+      await fillZhaopinBatchField(getZhaopinFormField(form, /^职位$|职位名称|职务|岗位/), "职位", position, "text", results, "在校职务");
+      await fillZhaopinBatchField(getZhaopinFormField(form, /任职期间参加的活动或项目介绍|活动或项目介绍|工作内容|任职内容/), "任职期间参加的活动或项目介绍", content, "text", results, "在校职务");
+
+      for (const [pattern, label, value] of [[/开始时间/, "开始时间", start], [/结束时间/, "结束时间", end]]) {
+        const element = getZhaopinFormField(form, pattern);
+        if (!element || !value) continue;
+        const parsed = globalThis.Form2OfferDateUtils?.parseDateParts?.(value) || {};
+        if (!parsed.day) {
+          markElement(element, "uncertain", `${label}只有年月，网站要求具体日期`);
+          results.pendingDates += 1;
+          results.skipped += 1;
+          continue;
+        }
+        await fillZhaopinBatchField(element, label, value, "date", results, "在校职务");
+      }
+
+      const durationField = getZhaopinFormField(form, /任职时长|在校时长|任职年限/);
+      if (durationField && duration) {
+        await fillZhaopinBatchField(durationField, "任职时长", duration, "choice", results, "在校职务");
+      }
+
+      const saveControl = getZhaopinSaveControl(form);
+      if (!saveControl) {
+        setProfilePanelStatus(`第 ${index + 1} 段在校职务已填写，但页面未找到该段的保存按钮。`, true);
+        break;
+      }
+      clickActionElement(saveControl);
+      await sleep(180);
+      results.processed += 1;
+      setAutofillProgress("智联批量填写", 45 + Math.round(((index + 1) / desiredItems.length) * 45), `已处理 ${index + 1}/${desiredItems.length} 段在校职务`);
+    }
+
+    const pending = results.failed + results.skipped;
+    const summary = {
+      attempted: results.filled + results.failed,
+      filled: results.filled,
+      failed: results.failed,
+      skipped: results.skipped,
+      pending,
+      total: results.filled + pending,
+      message: "智联在校职务已批量填写；日期只有年月的条目需要人工选择具体日期，不会擅自补日期。",
+      aiUsage: getAutofillAiSnapshot()
+    };
+    setAutofillSummary(summary);
+    setProfilePanelStatus(`智联在校职务批量填写完成：已填写 ${results.filled} 项，待处理 ${pending} 项。`);
+    await persistProfilePanelState(getProfilePanelStateSnapshot());
+    return { handled: true, ok: true, ...results, pending, total: summary.total, summary };
+  }
+
   function injectStyle() {
     if (document.getElementById(STYLE_ID)) {
       return;
@@ -3055,6 +3376,24 @@
       #${PANEL_ID} .arf-row-value.is-empty {
         color: #aaa196;
       }
+      #${PANEL_ID} .arf-row-actions {
+        grid-column: 2;
+        display: flex;
+        gap: 8px;
+      }
+      #${PANEL_ID} .arf-row-actions button {
+        cursor: pointer;
+        border: 1px solid #d7c9b4;
+        border-radius: 6px;
+        padding: 3px 10px;
+        color: #504431;
+        background: #fffdf8;
+      }
+      #${PANEL_ID} .arf-row-actions button:hover,
+      #${PANEL_ID} .arf-row-actions button:focus-visible {
+        background: #f3e8d5;
+        outline: 2px solid #b38b48;
+      }
       #${PANEL_ID} .arf-empty {
         padding: 12px;
         border: 1px dashed #ded6c8;
@@ -3296,6 +3635,62 @@
     }
   }
 
+  function rememberFocusedPageControl(event) {
+    const target = event.target;
+    if (!(target instanceof Element) || target.closest(`#${PANEL_ID},#${FLOAT_ID}`)) return;
+    if (!target.matches(CONTROL_SELECTOR)) return;
+    focusedPageControl = target;
+    const hint = profilePanel?.querySelector('[data-role="focused-field"]');
+    if (hint) hint.textContent = `填入目标：${buildFieldMeta(target).label || "当前输入框"}`;
+  }
+
+  document.addEventListener("focusin", rememberFocusedPageControl, true);
+
+  async function fillProfileItemIntoFocusedField(item, category) {
+    if (autofillInProgress || manualFillInProgress) {
+      setProfilePanelStatus("正在填写，请稍候。", true);
+      return;
+    }
+    const target = focusedPageControl;
+    if (!target?.isConnected || !isVisible(target)) {
+      setProfilePanelStatus("先点击网页中要填写的输入框，再点资料旁的“填入”。", true);
+      return;
+    }
+    const field = buildFieldMeta(target);
+    const candidate = {
+      field, fieldLabel: field.label, fieldCategory: inferMatchSection(field),
+      sourceLabel: item.label, sourceCategory: category, sourceSubsection: item.subsection,
+      writeMode: guessAutofillValueFieldType(field)
+    };
+    const risk = globalThis.Form2OfferSafetyPolicy?.classifyCandidate(candidate);
+    if (!risk || risk.risk === "blocked" || field.disabled ||
+        (field.readOnly && !["choice", "date"].includes(candidate.writeMode)) ||
+        /password|one-time-code|验证码|校验码|短信码|captcha|otp/i.test(
+          `${field.type} ${field.label} ${field.name} ${field.id} ${target.getAttribute("autocomplete") || ""}`)) {
+      setProfilePanelStatus("这个字段不能直接写入，请在网页上手动处理。", true);
+      return;
+    }
+    const value = String(item.value == null ? "" : item.value);
+    if (!value) return;
+    if (target.maxLength > 0 && value.length > target.maxLength) {
+      setProfilePanelStatus(`内容有${value.length}字，超过此框${target.maxLength}字上限；请复制后精简，不自动截断。`, true);
+      return;
+    }
+    if (risk.risk !== "standard" && !window.confirm(`“${field.label || "当前字段"}”涉及敏感资料或声明。确认把“${item.label}”填入此处？`)) return;
+    if (field.hasCurrentValue && !valuesLookEquivalent(field.currentValue, value) &&
+        !window.confirm(`“${field.label || "当前字段"}”已有内容，确认用“${item.label}”替换？`)) return;
+    manualFillInProgress = true;
+    try {
+      const result = await fillElementSmart(target, value, field, candidate);
+      markElement(target, result.ok ? "filled" : "uncertain", `${result.ok ? "已填写" : "待处理"}: ${item.label}`);
+      setProfilePanelStatus(result.ok ? `已将“${item.label}”填入“${field.label || "当前输入框"}”，请核对。` : `未完成：${result.reason || "请手动检查选项"}`, !result.ok);
+    } catch (error) {
+      setProfilePanelStatus(`填写失败：${error.message}`, true);
+    } finally {
+      manualFillInProgress = false;
+    }
+  }
+
   function syncProfilePanelHostState() {
     if (!profilePanelHost) {
       return;
@@ -3360,7 +3755,7 @@
     const subtitle = document.createElement("div");
     subtitle.className = "arf-subtitle";
     subtitle.dataset.role = "subtitle";
-    subtitle.textContent = "本机简历资料。用于查看、搜索和复制；开始填写会扫描并自动填写当前网页。";
+    subtitle.textContent = "先点网页输入框，再点资料旁的“填入”；也可一键扫描整页。敏感信息逐项确认。";
     titleWrap.append(title, subtitle);
 
     const headerActions = document.createElement("div");
@@ -3390,6 +3785,12 @@
 
     const body = document.createElement("div");
     body.className = "arf-body";
+    const focusedHint = document.createElement("div");
+    focusedHint.dataset.role = "focused-field";
+    focusedHint.className = "arf-subtitle";
+    focusedHint.setAttribute("role", "status");
+    focusedHint.textContent = "填入目标：请先点击网页中的输入框";
+    body.append(focusedHint);
 
     const searchInput = document.createElement("input");
     searchInput.className = "arf-search";
@@ -3777,6 +4178,23 @@
           familyRelation,
           prefix: `profileV2.sections.${sectionKey}.items[${itemIndex}].values`
         });
+        if (sectionKey === "internship") {
+          const values = item?.values && typeof item.values === "object" ? item.values : {};
+          const hasDuration = Object.keys(values).some((label) => /任职时长|实习时长|工作时长/.test(String(label)));
+          const duration = globalThis.Form2OfferProfileUtils?.getInternshipDurationLabel?.(
+            values["开始时间"] || values["起始时间"] || values["开始日期"],
+            values["结束时间"] || values["截止时间"] || values["结束日期"]
+          );
+          if (!hasDuration && duration) {
+            appendProfileV2Entry(target, {
+              label: "任职时长",
+              value: duration,
+              subsection,
+              familyRelation,
+              itemId: `profileV2.sections.${sectionKey}.items[${itemIndex}].derived.duration`
+            });
+          }
+        }
         appendProfileV2CustomRows(target, item?.custom, {
           sectionKey,
           subsection,
@@ -6402,6 +6820,15 @@
     try {
       clearMarks();
       setProfilePanelStatus("正在扫描页面并准备一键填写...");
+      await refreshCurrentProfile({ force: true });
+      const structuredBatch = await runZhaopinStructuredAutofill({ runId });
+      if (structuredBatch?.handled) {
+        return structuredBatch;
+      }
+      const studentStructuredBatch = await runZhaopinStudentStructuredAutofill({ runId });
+      if (studentStructuredBatch?.handled) {
+        return studentStructuredBatch;
+      }
       const planResult = await generateAutofillPlan({ runId, continueRun: true });
       if (!planResult?.ok) {
         return planResult || { ok: false, reason: "plan failed" };
@@ -6610,6 +7037,10 @@
 
     if (candidate?.writeMode === "date") {
       const dateValue = normalizeDateValue(value);
+      const elementDateResult = await tryFillElementDatePicker(element, dateValue);
+      if (elementDateResult.handled) {
+        return elementDateResult;
+      }
       const phoenixDateResult = await tryFillPhoenixDatePicker(element, dateValue);
       if (phoenixDateResult.handled) {
         return phoenixDateResult;
@@ -7020,6 +7451,97 @@
     return { handled: true, ok: true };
   }
 
+  function getVisibleElementDatePicker() {
+    const panels = Array.from(document.querySelectorAll(".el-picker-panel.el-date-picker,.el-date-picker.el-popper"));
+    return panels.filter(isVisible).at(-1) || null;
+  }
+
+  function readElementDatePickerMonth(panel) {
+    const labels = Array.from(panel?.querySelectorAll?.(".el-date-picker__header-label") || [])
+      .map((node) => getElementText(node));
+    const year = Number((labels.join(" ").match(/(19|20)\d{2}/) || [])[0]);
+    const month = Number((labels.join(" ").match(/(\d{1,2})\s*月/) || [])[1]);
+    return {
+      year: Number.isFinite(year) ? year : 0,
+      month: Number.isFinite(month) ? month : 0
+    };
+  }
+
+  async function tryFillElementDatePicker(element, value) {
+    const container = element?.closest?.(".el-date-editor,.apply-form-date,.apply-form-date__node");
+    if (!container) {
+      return { handled: false, ok: false };
+    }
+
+    const dateParts = globalThis.Form2OfferDateUtils?.parseDateParts?.(value) || {};
+    const targetYear = Number(dateParts.year);
+    const targetMonth = Number(dateParts.month);
+    const targetDay = Number(dateParts.day);
+    if (!targetYear || !targetMonth || !targetDay) {
+      return {
+        handled: true,
+        ok: false,
+        reason: "该日期控件需要完整年月日，当前资料只有年月"
+      };
+    }
+
+    clickActionElement(element);
+    let panel = null;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      panel = getVisibleElementDatePicker();
+      if (panel) break;
+      await sleep(45);
+    }
+    if (!panel) {
+      return { handled: true, ok: false, reason: "未能打开 Element 日期选择器" };
+    }
+
+    let positioned = false;
+    for (let attempt = 0; attempt < 160; attempt += 1) {
+      panel = getVisibleElementDatePicker() || panel;
+      const current = readElementDatePickerMonth(panel);
+      if (current.year === targetYear && current.month === targetMonth) {
+        positioned = true;
+        break;
+      }
+      if (!current.year || !current.month) break;
+
+      const selector = current.year !== targetYear
+        ? current.year > targetYear
+          ? ".el-date-picker__prev-btn.el-icon-d-arrow-left"
+          : ".el-date-picker__next-btn.el-icon-d-arrow-right"
+        : current.month > targetMonth
+          ? ".el-date-picker__prev-btn.el-icon-arrow-left"
+          : ".el-date-picker__next-btn.el-icon-arrow-right";
+      const navigationControl = panel.querySelector(selector);
+      if (!navigationControl) break;
+      clickActionElement(navigationControl);
+      await sleep(35);
+    }
+
+    if (!positioned) {
+      closeChoicePopup(element);
+      return { handled: true, ok: false, reason: "日期选择器无法定位到目标年月" };
+    }
+
+    panel = getVisibleElementDatePicker() || panel;
+    const dayControl = Array.from(panel.querySelectorAll(".el-date-table td.available"))
+      .filter((cell) => !cell.classList.contains("prev-month") && !cell.classList.contains("next-month"))
+      .find((cell) => Number(getElementText(cell.querySelector("span"))) === targetDay);
+    if (!dayControl) {
+      closeChoicePopup(element);
+      return { handled: true, ok: false, reason: "日期选择器中没有目标日期" };
+    }
+
+    clickActionElement(dayControl);
+    const accepted = await waitForControlValueMatch(element, value);
+    if (!accepted) {
+      closeChoicePopup(element);
+      return { handled: true, ok: false, reason: "选择日期后页面未接受该值" };
+    }
+    return { handled: true, ok: true };
+  }
+
   function choiceTextMatches(label, target) {
     const dateUtils = globalThis.Form2OfferDateUtils;
     const leftNumeric = dateUtils?.normalizeNumericChoiceToken?.(label) || "";
@@ -7083,9 +7605,12 @@
     const optionScope = optionRoot || document;
     const optionLabels = findVisibleChoiceOptions(optionScope, optionScope === document).map((option) => getElementText(option));
     const fieldLabel = inferFieldLabel(field);
-    const target = /关系|亲属/.test(normalizeMatchKey(fieldLabel))
+    const normalizedFieldKey = normalizeMatchKey(fieldLabel);
+    const target = /关系|亲属/.test(normalizedFieldKey)
       ? globalThis.Form2OfferProfileUtils?.projectFamilyRelationChoice?.(rawTarget, optionLabels) || rawTarget
-      : rawTarget;
+      : /任职时长|实习时长|工作时长/.test(normalizedFieldKey)
+        ? globalThis.Form2OfferProfileUtils?.projectDurationChoice?.(rawTarget, optionLabels) || rawTarget
+        : rawTarget;
     const hierarchicalResult = await tryFillHierarchicalChoiceOptions(value, target);
     if (hierarchicalResult.ok) {
       return hierarchicalResult;
@@ -7525,7 +8050,27 @@
         value.className = `arf-row-value${item.hasValue ? "" : " is-empty"}`;
         value.textContent = item.hasValue ? item.value : "未填写";
 
-        row.append(label, value);
+        const actions = document.createElement("div");
+        actions.className = "arf-row-actions";
+        if (item.hasValue) {
+          const copy = document.createElement("button");
+          copy.type = "button";
+          copy.textContent = "复制";
+          copy.setAttribute("aria-label", `复制${item.label}`);
+          copy.addEventListener("click", async () => {
+            try {
+              await copyTextToClipboard(item.value);
+              setProfilePanelStatus(`已复制“${item.label}”`);
+            } catch (error) { setProfilePanelStatus(`复制失败：${error.message}`, true); }
+          });
+          const fill = document.createElement("button");
+          fill.type = "button";
+          fill.textContent = "填入";
+          fill.setAttribute("aria-label", `将${item.label}填入已选择的网页输入框`);
+          fill.addEventListener("click", () => void fillProfileItemIntoFocusedField(item, section.category));
+          actions.append(copy, fill);
+        }
+        row.append(label, value, actions);
         card.append(row);
       }
 
@@ -7736,8 +8281,17 @@
 
   function setSelectValue(element, value) {
     const stringValue = String(value || "").trim();
+    if (!stringValue) return false;
     const normalizedTarget = normalizeChoiceLabel(stringValue);
-    const matchedOption = Array.from(element.options).find((option) => {
+    const options = Array.from(element.options).filter((option) =>
+      !option.disabled && !option.parentElement?.disabled &&
+      String(option.value || "").trim() &&
+      !/^(?:请选择|请选择一项|选择|please select|select an option)$/i.test(String(option.textContent || "").trim())
+    );
+    const exact = options.find((option) =>
+      option.value === stringValue || normalizeChoiceLabel(option.textContent || "") === normalizedTarget
+    );
+    const fuzzy = exact ? [] : options.filter((option) => {
       const optionValue = normalizeText(option.value || "", 120);
       const optionLabel = normalizeText(option.textContent || "", 120);
       return (
@@ -7747,17 +8301,17 @@
         choiceTextMatches(optionLabel, stringValue) ||
         normalizeChoiceLabel(optionValue) === normalizedTarget ||
         normalizeChoiceLabel(optionLabel) === normalizedTarget ||
-        optionLabel.includes(stringValue) ||
-        stringValue.includes(optionLabel)
+        (optionLabel && optionLabel.includes(stringValue)) ||
+        (optionLabel && stringValue.includes(optionLabel))
       );
     });
 
+    const matchedOption = exact || (fuzzy.length === 1 ? fuzzy[0] : null);
     if (matchedOption) {
       setNativeValue(element, matchedOption.value);
-      return true;
+      return element.value === matchedOption.value;
     }
 
-    setNativeValue(element, stringValue);
     return false;
   }
 

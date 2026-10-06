@@ -84,3 +84,17 @@ test("finds the highest recognized education record without relying on array ord
   assert.equal(profileUtils.getHighestEducationIndex(profile), 1);
   assert.equal(profileUtils.getHighestEducationIndex({ sections: { education: { items: [populated({ 学校: "A" })] } } }), -1);
 });
+
+test("derives internship duration from month-only records and maps it to site options", () => {
+  assert.deepEqual(profileUtils.parseYearMonth("2026-03"), { year: 2026, month: 3 });
+  assert.deepEqual(profileUtils.parseYearMonth("2025年7月"), { year: 2025, month: 7 });
+  assert.equal(profileUtils.getInternshipDurationMonths("2026-03", "2026-07"), 5);
+  assert.equal(profileUtils.getInternshipDurationLabel("2026-03", "2026-07"), "3个月-6个月");
+  assert.equal(profileUtils.getInternshipDurationLabel("2023-10", "2023-11"), "3个月以内");
+  assert.equal(profileUtils.getCampusDurationLabel("2023-05", "2024-05"), "1年-2年");
+  assert.equal(profileUtils.getCampusDurationLabel("2021-09", "2022-06"), "6个月-1年");
+  assert.equal(
+    profileUtils.projectDurationChoice("5个月", ["3个月以内", "3个月-6个月", "6个月-1年", "1年以上"]),
+    "3个月-6个月"
+  );
+});

@@ -137,6 +137,110 @@
     return countPopulatedItems(profileV2, config.sectionKey, config.maxItems);
   }
 
+  function parseYearMonth(value) {
+    const text = String(value == null ? "" : value).trim();
+    const match = text.match(/((?:19|20)\d{2})\s*(?:[-/.年]\s*(\d{1,2})\s*月?|$)/);
+    if (!match) {
+      return null;
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2] || 1);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+      return null;
+    }
+    return { year, month };
+  }
+
+  function getInternshipDurationMonths(start, end) {
+    const startParts = parseYearMonth(start);
+    const endParts = parseYearMonth(end);
+    if (!startParts || !endParts) {
+      return 0;
+    }
+    const months = (endParts.year - startParts.year) * 12 + endParts.month - startParts.month + 1;
+    return months > 0 ? months : 0;
+  }
+
+  function getInternshipDurationLabel(start, end) {
+    const months = getInternshipDurationMonths(start, end);
+    if (!months) {
+      return "";
+    }
+    if (months <= 3) {
+      return "3个月以内";
+    }
+    if (months <= 6) {
+      return "3个月-6个月";
+    }
+    if (months <= 12) {
+      return "6个月-1年";
+    }
+    return "1年以上";
+  }
+
+  function getCampusDurationLabel(start, end) {
+    const months = getInternshipDurationMonths(start, end);
+    if (!months) {
+      return "";
+    }
+    if (months <= 6) {
+      return "6个月以内";
+    }
+    if (months <= 12) {
+      return "6个月-1年";
+    }
+    if (months <= 24) {
+      return "1年-2年";
+    }
+    if (months <= 36) {
+      return "2年-3年";
+    }
+    return "3年以上";
+  }
+
+  function projectDurationChoice(value, optionLabels = []) {
+    const raw = String(value == null ? "" : value).trim();
+    const options = (optionLabels || [])
+      .map((option) => String(option == null ? "" : option).trim())
+      .filter(Boolean);
+    if (!raw || options.length === 0) {
+      return raw;
+    }
+
+    const monthsMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:个?月|months?)/i);
+    const months = monthsMatch ? Number(monthsMatch[1]) : 0;
+    const canonical = months > 0
+      ? months <= 3
+        ? "3个月以内"
+        : months <= 6
+          ? "3个月-6个月"
+          : months <= 12
+            ? "6个月-1年"
+            : "1年以上"
+      : raw;
+    const exact = options.find((option) => normalizeActionText(option) === normalizeActionText(canonical));
+    if (exact) {
+      return exact;
+    }
+    const byRange = months > 0
+      ? options.find((option) => {
+        const text = normalizeActionText(option);
+        if (/1年以上|一年以上/.test(text)) return months > 12;
+        if (/6个月.?1年|半年.?1年/.test(text)) return months > 6 && months <= 12;
+        if (/3个月.?6个月/.test(text)) return months > 3 && months <= 6;
+        if (/3个月以内|三个月以内/.test(text)) return months <= 3;
+        return false;
+      })
+      : null;
+    return byRange || options.find((option) => choiceTextMatchesLocal(option, raw)) || raw;
+  }
+
+  function choiceTextMatchesLocal(left, right) {
+    const a = normalizeActionText(left);
+    const b = normalizeActionText(right);
+    return Boolean(a && b && (a === b || a.includes(b) || b.includes(a)));
+  }
+
   function getPublicationAvailability(profileV2) {
     const paperCount = countPopulatedItems(profileV2, "papers");
     const patentCount = countPopulatedItems(profileV2, "patent");
@@ -306,6 +410,31 @@
     return true;
   }
 
+  function getAutocompleteFieldLabel(value) {
+    const parts = String(value || "").toLowerCase().trim().split(/\s+/);
+    if (parts.at(-1) === "webauthn") parts.pop();
+    return ({
+      name: "姓名", "given-name": "名", "family-name": "姓",
+      email: "邮箱", tel: "电话", "tel-national": "电话",
+      bday: "出生日期", "postal-code": "邮政编码",
+      "street-address": "通讯地址"
+    })[parts.at(-1)] || "";
+  }
+
+  function getProfileInputType(type, value) {
+    const text = String(value == null ? "" : value).trim();
+    if (text && type === "month" && !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(text)) return "text";
+    if (text && type === "date" && !/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(text)) return "text";
+    return type || "text";
+  }
+
+  function getProfileSelectOptions(options, value) {
+    const result = [...(options || ["", "是", "否"])];
+    const text = String(value == null ? "" : value);
+    if (text && !result.includes(text)) result.push(text);
+    return result;
+  }
+
   function getRepeatConfigs() {
     return REPEAT_CONFIGS.map((config) => ({
       ...config,
@@ -320,9 +449,15 @@
     familyRelationsMatch,
     getConfigForActionText,
     getDesiredRepeatItemCount,
+    getInternshipDurationLabel,
+    getInternshipDurationMonths,
     getFamilyRelationGroup,
     getHighestEducationIndex,
     getPublicationAvailability,
+    getProfileInputType,
+    getAutocompleteFieldLabel,
+    getCampusDurationLabel,
+    getProfileSelectOptions,
     getRepeatConfigs,
     isDateOnlyValue,
     isFieldValueShapeCompatible,
@@ -331,6 +466,8 @@
     normalizeActionText,
     normalizeFamilyRelation,
     normalizeProfileEntryLabel,
+    parseYearMonth,
+    projectDurationChoice,
     projectFamilyRelationChoice
   };
 });
