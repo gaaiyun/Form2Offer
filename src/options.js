@@ -28,6 +28,7 @@ const fields = {
   overwriteExisting: document.getElementById("overwriteExisting"),
   fillSensitive: document.getElementById("fillSensitive"),
   fillDeclarations: document.getElementById("fillDeclarations"),
+  fillIdentity: document.getElementById("fillIdentity"),
   saveFillPolicyButton: document.getElementById("saveFillPolicy"),
   fillPolicyFeedback: document.getElementById("fillPolicyFeedback"),
   agentBridgeUrl: document.getElementById("agentBridgeUrl"),
@@ -672,7 +673,7 @@ fields.profileSectionEditor.addEventListener("input", handleProfileEditorInput);
 fields.profileSectionEditor.addEventListener("focusin", handleProfileSectionFocus);
 fields.profileSectionEditor.addEventListener("click", handleStructuredProfileClick);
 fields.saveFillPolicyButton.addEventListener("click", () => void saveFillPolicy());
-for (const field of [fields.overwriteExisting, fields.fillSensitive, fields.fillDeclarations]) {
+for (const field of [fields.overwriteExisting, fields.fillSensitive, fields.fillDeclarations, fields.fillIdentity]) {
   field.addEventListener("change", handleFillPolicyChange);
 }
 window.addEventListener("scroll", scheduleProfileSectionSync, { passive: true });
@@ -1042,7 +1043,8 @@ function getFillPolicySnapshot() {
   return globalThis.Form2OfferSafetyPolicy.normalizeFillPolicy({
     overwriteExisting: fields.overwriteExisting.checked,
     fillSensitive: fields.fillSensitive.checked,
-    fillDeclarations: fields.fillDeclarations.checked
+    fillDeclarations: fields.fillDeclarations.checked,
+    fillIdentity: fields.fillIdentity.checked
   });
 }
 
@@ -1051,6 +1053,7 @@ function applyFillPolicy(policy) {
   fields.overwriteExisting.checked = normalized.overwriteExisting;
   fields.fillSensitive.checked = normalized.fillSensitive;
   fields.fillDeclarations.checked = normalized.fillDeclarations;
+  fields.fillIdentity.checked = normalized.fillIdentity;
 }
 
 function getFillPolicyKey(policy = getFillPolicySnapshot()) {

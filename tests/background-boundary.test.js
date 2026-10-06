@@ -153,7 +153,8 @@ test("returns API secrets only to trusted extension pages", async () => {
   assert.deepEqual(content.data.fillPolicy, {
     overwriteExisting: false,
     fillSensitive: false,
-    fillDeclarations: false
+    fillDeclarations: false,
+    fillIdentity: false
   });
 });
 

@@ -14,13 +14,23 @@
   const DEFAULT_FILL_POLICY = Object.freeze({
     overwriteExisting: false,
     fillSensitive: false,
-    fillDeclarations: false
+    fillDeclarations: false,
+    fillIdentity: false
   });
 
   const BLOCKED_CONTROL_TYPES = new Set(["file", "submit", "button", "reset", "image"]);
   const BLOCKED_ACTION_PATTERN = /提交申请|最终提交|确认投递|立即申请|确认申请|submitapplication|applynow/i;
   const DECLARATION_PATTERN =
     /有关声明|本人声明|诚信声明|背景调查|背调|合规问答|违法|犯罪|刑事处罚|不良行为|失信|征信|纪律处分|竞业限制|利益冲突|亲属回避|兼职|持股|金融机构营销|境外居留|永久居留|是否同意|真实性承诺|签字确认/i;
+  // 证件号码单独一档：即使开启“填写敏感资料”也不填，需单独开启“填写证件号码”。
+  const IDENTITY_PATTERN = /身份证号|身份证件号|证件号码|证件号|护照号|社会保障号|社保号码|^身份证$/i;
+  function isIdentityCandidate(candidate = {}) {
+    const field = candidate.field || {};
+    return [candidate.fieldLabel, candidate.sourceLabel, field.label, field.placeholder, field.name]
+      .map((value) => String(value || "").replace(/\s+/g, ""))
+      .some((value) => value && IDENTITY_PATTERN.test(value) && !/类型|类别/.test(value));
+  }
+
   const SENSITIVE_PATTERN =
     /身份证|护照|证件号码|证件号|证件类型|社会保障|社保号码|家庭信息|家庭情况|家庭成员|社会关系|亲属|父亲|母亲|配偶|子女|紧急联系人|政治面貌|健康状况|疾病|婚姻状况|户籍|户口|籍贯|生源地/i;
 
@@ -29,7 +39,8 @@
     return {
       overwriteExisting: Boolean(source.overwriteExisting),
       fillSensitive: Boolean(source.fillSensitive),
-      fillDeclarations: Boolean(source.fillDeclarations)
+      fillDeclarations: Boolean(source.fillDeclarations),
+      fillIdentity: Boolean(source.fillIdentity)
     };
   }
 
@@ -76,6 +87,13 @@
       };
     }
 
+    if (isIdentityCandidate(candidate)) {
+      return {
+        risk: "identity",
+        reason: "证件号码默认不自动填写，可在设置中单独开启"
+      };
+    }
+
     if (
       candidate.sourceCategory === "家庭信息" ||
       candidate.fieldCategory === "家庭信息" ||
@@ -108,6 +126,8 @@
       policyReason = classification.reason;
     } else if (field.hasCurrentValue && !candidate.alreadyMatches && !policy.overwriteExisting) {
       policyReason = "网页字段已有内容，默认不覆盖";
+    } else if (classification.risk === "identity" && !policy.fillIdentity) {
+      policyReason = classification.reason;
     } else if (classification.risk === "sensitive" && !policy.fillSensitive) {
       policyReason = classification.reason;
     } else if (classification.risk === "declaration" && !policy.fillDeclarations) {

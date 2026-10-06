@@ -35,13 +35,16 @@ test("normalizes fill policy with conservative defaults", () => {
   assert.deepEqual(normalizeFillPolicy({ overwriteExisting: 1, fillSensitive: true }), {
     overwriteExisting: true,
     fillSensitive: true,
-    fillDeclarations: false
+    fillDeclarations: false,
+    fillIdentity: false
   });
 });
 
 test("classifies standard, sensitive, declaration, and blocked candidates", () => {
   assert.equal(classifyCandidate(candidate()).risk, "standard");
-  assert.equal(classifyCandidate(candidate({ fieldLabel: "身份证号码" })).risk, "sensitive");
+  assert.equal(classifyCandidate(candidate({ fieldLabel: "身份证号码" })).risk, "identity");
+  assert.equal(classifyCandidate(candidate({ fieldLabel: "证件号码类型" })).risk, "sensitive");
+  assert.equal(classifyCandidate(candidate({ fieldLabel: "紧急联系人" })).risk, "sensitive");
   assert.equal(classifyCandidate(candidate({ sourceCategory: "家庭信息" })).risk, "sensitive");
   assert.equal(classifyCandidate(candidate({ sourceCategory: "有关声明" })).risk, "declaration");
   assert.equal(
@@ -98,7 +101,7 @@ test("default policy leaves risky and existing values pending", () => {
   assert.equal(existing.shouldAutoFill, false);
   assert.match(existing.policy.reason, /已有内容/);
   assert.equal(sensitive.shouldAutoFill, false);
-  assert.match(sensitive.policy.reason, /敏感字段/);
+  assert.match(sensitive.policy.reason, /证件号码/);
   assert.equal(declaration.shouldAutoFill, false);
   assert.match(declaration.policy.reason, /声明/);
   assert.equal(sensitive.canAutoFill, true);
@@ -106,12 +109,15 @@ test("default policy leaves risky and existing values pending", () => {
 
 test("each opt-in unlocks only its own policy category", () => {
   const existing = candidate({ field: { type: "text", hasCurrentValue: true, canFill: true, label: "姓名" } });
-  const sensitive = candidate({ fieldLabel: "护照号码" });
+  const sensitive = candidate({ fieldLabel: "紧急联系人电话" });
+  const identity = candidate({ fieldLabel: "护照号码" });
   const declaration = candidate({ sourceCategory: "有关声明" });
 
   assert.equal(applyPolicyToCandidate(existing, { overwriteExisting: true }).shouldAutoFill, true);
   assert.equal(applyPolicyToCandidate(sensitive, { overwriteExisting: true }).shouldAutoFill, false);
   assert.equal(applyPolicyToCandidate(sensitive, { fillSensitive: true }).shouldAutoFill, true);
+  assert.equal(applyPolicyToCandidate(identity, { fillSensitive: true }).shouldAutoFill, false);
+  assert.equal(applyPolicyToCandidate(identity, { fillIdentity: true }).shouldAutoFill, true);
   assert.equal(applyPolicyToCandidate(declaration, { fillSensitive: true }).shouldAutoFill, false);
   assert.equal(applyPolicyToCandidate(declaration, { fillDeclarations: true }).shouldAutoFill, true);
 });

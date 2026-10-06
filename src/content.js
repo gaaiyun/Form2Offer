@@ -2179,7 +2179,7 @@
         globalThis.Form2OfferProfileUtils?.getAutocompleteFieldLabel(element.getAttribute("autocomplete"))
     );
     const nearbyText = getNearbyText(element);
-    const label = improveFieldLabel(element, rawLabel, nearbyText);
+    const label = isOngoingChoiceControl(element) ? "至今" : improveFieldLabel(element, rawLabel, nearbyText);
     const currentValue = getControlCurrentValue(element);
     const groupText = getRepeatGroupLabelText(element);
     const dateComponent = globalThis.Form2OfferDateUtils?.inferDateComponent?.(label) || { role: "", part: "" };
@@ -7311,13 +7311,17 @@
     const text = compactText([candidate?.fieldLabel, field?.nearbyText, field?.placeholder, field?.name, field?.id, field?.section].join(" "));
     const isChoiceField = candidate?.writeMode === "choice" || /选择|请选择|下拉|选择项|单选/.test(text);
 
+    if (candidate?.writeMode === "date" && /^(至今|今|present|now)$/i.test(String(value || "").trim())) {
+      return checkOngoingBoxNear(element);
+    }
+
     if (candidate?.writeMode === "date") {
       const dateValue = adaptDateValueForControl(element, normalizeDateValue(value), candidate?.fieldLabel || field?.label || "");
       const elementDateResult = await tryFillElementDatePicker(element, dateValue);
       if (elementDateResult.handled) {
         return elementDateResult;
       }
-      const phoenixDateResult = await tryFillPhoenixDatePicker(element, dateValue);
+      const phoenixDateResult = await tryFillPhoenixDatePicker(element, dateValue, candidate?.fieldLabel || field?.label || "");
       if (phoenixDateResult.handled) {
         return phoenixDateResult;
       }
@@ -7441,6 +7445,41 @@
     return result;
   }
 
+  const ONGOING_CHOICE_PATTERN = /^(至今|至今在职|至今在读|在职|在读|present|current|now|until now)$/i;
+
+  function isCheckboxLikeControl(element) {
+    return Boolean(element?.matches?.('input[type="checkbox"],[role="checkbox"],.phoenix-checkbox,[class*="checkbox"]'));
+  }
+
+  function getOwnChoiceText(element) {
+    if (!element) return "";
+    if (element instanceof HTMLInputElement) return normalizeText(getChoiceLabelText(element), 30);
+    return normalizeText(element.innerText || element.textContent || element.getAttribute?.("aria-label") || "", 30);
+  }
+
+  function isOngoingChoiceControl(element) {
+    return isCheckboxLikeControl(element) && ONGOING_CHOICE_PATTERN.test(getOwnChoiceText(element));
+  }
+
+  async function checkOngoingBoxNear(element) {
+    const container = element?.closest?.(".form-item,.el-form-item,.ant-form-item,[class*='form-item'],[class*='apply-field-']") || element?.parentElement;
+    const box = Array.from(container?.querySelectorAll?.('input[type="checkbox"],[role="checkbox"],.phoenix-checkbox,label,[class*="checkbox"]') || [])
+      .find((node) => ONGOING_CHOICE_PATTERN.test(getOwnChoiceText(node)));
+    if (!box) {
+      return { ok: false, reason: "资料为“至今”，但这一栏没有“至今”选项" };
+    }
+    const checked = box.matches?.(":checked") || /checked/.test(String(box.className)) || Boolean(box.querySelector?.("[class*='--checked'],:checked"));
+    if (!checked) clickActionElement(resolveChoiceClickTarget(box));
+    await sleep(60);
+    return { ok: true };
+  }
+
+  // 北森等自绘单选/复选：外层选项块点了没反应，要点里面真正的单选/复选元素。
+  function resolveChoiceClickTarget(option) {
+    if (!option?.querySelector) return option;
+    return option.querySelector('.phoenix-radio,.phoenix-checkbox__wrapper,.phoenix-checkbox,input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"]') || option;
+  }
+
   function resolveEditableTarget(element) {
     if (!element || !(element instanceof Element)) {
       return null;
@@ -7505,8 +7544,12 @@
     });
 
     if (matched) {
-      clickActionElement(matched);
-      const accepted = await waitForRoleChoiceSelection(root, target);
+      clickActionElement(resolveChoiceClickTarget(matched));
+      let accepted = await waitForRoleChoiceSelection(root, target);
+      if (!accepted && resolveChoiceClickTarget(matched) !== matched) {
+        clickActionElement(matched);
+        accepted = await waitForRoleChoiceSelection(root, target);
+      }
       return accepted
         ? { ok: true }
         : { ok: false, reason: "点击单选项后页面未保留所选值" };
@@ -7684,7 +7727,35 @@
     return false;
   }
 
-  async function tryFillPhoenixDatePicker(element, value) {
+  // 北森“年月”控件：月份面板（年份 + 1月…12月），点月份格即写入 yyyy-mm。
+  async function tryPickPhoenixMonthPanel(element, calendar, targetYear, targetMonth) {
+    const panelOf = () => Array.from((calendar || document).querySelectorAll(".phoenix-calendar-month-panel")).find(isVisible)
+      || Array.from(document.querySelectorAll(".phoenix-calendar-month-panel")).find(isVisible);
+    let panel = panelOf();
+    if (!panel) return null;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      panel = panelOf() || panel;
+      const year = Number((getElementText(panel.querySelector(".phoenix-calendar-month-panel-year-select")).match(/\d{4}/) || [])[0]);
+      if (!year) return { handled: true, ok: false, reason: "月份面板读不到年份" };
+      if (year === targetYear) break;
+      const button = panel.querySelector(year > targetYear ? ".phoenix-calendar-month-panel-prev-year-btn" : ".phoenix-calendar-month-panel-next-year-btn");
+      if (!button) return { handled: true, ok: false, reason: "月份面板无法翻到目标年份" };
+      button.click();
+      await sleep(40);
+    }
+    panel = panelOf() || panel;
+    const cell = Array.from(panel.querySelectorAll(".phoenix-calendar-month-panel-cell"))
+      .find((item) => Number((getElementText(item).match(/\d{1,2}/) || [])[0]) === targetMonth && !/disabled/.test(String(item.className)));
+    if (!cell) return { handled: true, ok: false, reason: "月份面板中没有目标月份" };
+    cell.click();
+    const target = `${targetYear}-${String(targetMonth).padStart(2, "0")}`;
+    const accepted = await waitForControlValueMatch(element, target);
+    return accepted
+      ? { handled: true, ok: true }
+      : { handled: true, ok: false, reason: "选择月份后页面未接受该值" };
+  }
+
+  async function tryFillPhoenixDatePicker(element, value, fieldLabel = "") {
     const container = getPhoenixDatePickerContainer(element);
     if (!container) {
       return { handled: false, ok: false };
@@ -7693,12 +7764,12 @@
     const dateParts = globalThis.Form2OfferDateUtils?.parseDateParts?.(value) || {};
     const targetYear = Number(dateParts.year);
     const targetMonth = Number(dateParts.month);
-    const targetDay = Number(dateParts.day);
-    if (!targetYear || !targetMonth || !targetDay) {
+    let targetDay = Number(dateParts.day);
+    if (!targetYear || !targetMonth) {
       return {
         handled: true,
         ok: false,
-        reason: "该日期控件需要完整年月日，资料中缺少具体日期"
+        reason: "资料里只有年份，缺少月份，无法选择日期"
       };
     }
 
@@ -7713,6 +7784,23 @@
     }
     if (!calendar) {
       return { handled: true, ok: false, reason: "未能打开日期选择器" };
+    }
+
+    const monthResult = await tryPickPhoenixMonthPanel(element, calendar, targetYear, targetMonth);
+    if (monthResult) {
+      if (!monthResult.ok) closeChoicePopup(element);
+      return monthResult;
+    }
+
+    if (!targetDay) {
+      const rules = globalThis.Form2OfferFillRules;
+      const projected = rules?.projectMonthToDay?.(value, rules.inferDateRole(fieldLabel) || "start") || "";
+      targetDay = Number((projected.match(/-(\d{2})$/) || [])[1]);
+      if (!targetDay) {
+        closeChoicePopup(element);
+        return { handled: true, ok: false, reason: "该日期控件需要具体日期，资料中只有年月" };
+      }
+      value = projected;
     }
 
     let positioned = false;
@@ -7869,6 +7957,12 @@
   function resolveRankChoiceTarget(target, optionLabels, fieldLabel = "") {
     const rules = globalThis.Form2OfferFillRules;
     const text = String(target || "");
+    const labels = (Array.isArray(optionLabels) ? optionLabels : []).map((label) => normalizeText(label, 40));
+    const has = (pattern) => labels.some((label) => pattern.test(label));
+    if (/^(是|否)$/.test(text.trim())) {
+      if (has(/^应届/) && has(/^往届/)) return text.trim() === "是" ? labels.find((label) => /^应届/.test(label)) : labels.find((label) => /^往届/.test(label));
+      if (has(/^有$/) && has(/^无$/)) return text.trim() === "是" ? "有" : "无";
+    }
     if (!rules || rules.parseRankPercent(text) == null) return text;
     if (!/前\s*\d|top/i.test(text) && !/排名|名次|rank/i.test(String(fieldLabel || ""))) return text;
     const picked = rules.pickRankOption(text, optionLabels);
@@ -7926,6 +8020,9 @@
   }
 
   async function tryFillCustomChoiceField(element, value, field) {
+    if (isCheckboxLikeControl(element)) {
+      return { ok: false, reason: "复选框不是下拉选择" };
+    }
     const container = findChoiceFieldContainer(element);
     if (!container) {
       return { ok: false, reason: "no choice container found" };
