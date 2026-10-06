@@ -107,6 +107,20 @@ async function main() {
     return;
   }
 
+  // stop：通知正在运行的 Bridge 退出（例如更新代码后重启）。
+  if (args.command === "stop") {
+    try {
+      const response = await fetch(`http://${config.host}:${config.port}/v1/shutdown`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${config.mcpToken}` }
+      });
+      process.stdout.write(response.ok ? "Bridge stopping.\n" : `Bridge returned HTTP ${response.status}.\n`);
+    } catch {
+      process.stdout.write("Bridge is not running.\n");
+    }
+    return;
+  }
+
   if (args.command === "mcp") {
     const baseUrl = `http://${config.host}:${config.port}`;
     // 默认在 Bridge 未运行时自动拉起 serve；--no-autostart 关闭。
@@ -141,7 +155,8 @@ async function main() {
     agentHosts,
     saveConfig: (next) => {
       config = writeConfig(dataDir, next).config;
-    }
+    },
+    onShutdown: () => void stop()
   });
   const address = await bridge.listen();
   process.stdout.write(`Form2Offer Local Bridge ${BRIDGE_VERSION}\n`);
@@ -149,10 +164,10 @@ async function main() {
   process.stdout.write(`Pairing code: ${config.pairCode}\n`);
   process.stdout.write(`Approved sources: ${sourceRegistry.list().filter((source) => source.available).length}\n`);
 
-  const stop = async () => {
-    await bridge.close();
+  async function stop() {
+    await bridge.close().catch(() => undefined);
     process.exit(0);
-  };
+  }
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 }

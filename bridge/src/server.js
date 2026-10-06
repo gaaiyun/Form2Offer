@@ -264,6 +264,17 @@ function createBridgeServer(options) {
         return;
       }
 
+      // 停止 Bridge：只允许持有 mcpToken 的本机 Agent 或 CLI 调用。
+      if (request.method === "POST" && url.pathname === "/v1/shutdown") {
+        if (role !== "agent") {
+          sendJson(response, 403, { ok: false, error: "Only the local CLI or an MCP agent can stop the bridge." }, origin);
+          return;
+        }
+        sendJson(response, 200, { ok: true, data: { stopping: true } }, origin);
+        if (typeof options.onShutdown === "function") setTimeout(() => options.onShutdown(), 50);
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/browser/status") {
         sendJson(response, 200, { ok: true, data: browserHub.status() }, origin);
         return;

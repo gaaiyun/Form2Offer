@@ -862,6 +862,9 @@ async function checkStagedProfile() {
       `暂存时间：${new Date(staged.stagedAt).toLocaleString()}`,
       staged.note ? `说明：${staged.note}` : "",
       `共 ${staged.summary?.sectionCount || 0} 个分区、${staged.summary?.itemCount || 0} 条经历、${staged.summary?.valueCount || 0} 个字段。`,
+      staged.package.form2offerSettings
+        ? `同时导入设置：${[staged.package.form2offerSettings.candidateProfile ? "我的门槛" : "", Array.isArray(staged.package.form2offerSettings.resumeVersions) ? `${staged.package.form2offerSettings.resumeVersions.length} 个简历版本` : ""].filter(Boolean).join("、")}`
+        : "",
       diff.length ? "与当前资料的差异（+ 新增 ~ 修改 - 删除）：" : "与当前资料没有差异。",
       ...diff
     ].filter(Boolean).join("\n");
@@ -878,7 +881,15 @@ async function importStagedProfile() {
     await exportProfile();
     const profileV2 = normalizeProfileV2(stagedProfileCache.package.profileV2);
     renderProfileSectionEditor(profileV2);
-    await sendRuntimeMessage({ type: "OJAF_SAVE_SETTINGS", payload: { profileV2 } });
+    // 底稿可附带“我的门槛”和简历版本映射；API Key 与各项授权开关不随底稿导入。
+    const extra = stagedProfileCache.package.form2offerSettings || {};
+    const payload = { profileV2 };
+    if (extra.candidateProfile) payload.candidateProfile = extra.candidateProfile;
+    if (Array.isArray(extra.resumeVersions)) payload.resumeVersions = extra.resumeVersions;
+    await sendRuntimeMessage({ type: "OJAF_SAVE_SETTINGS", payload });
+    if (payload.candidateProfile || payload.resumeVersions) {
+      applyInsightSettings(await sendRuntimeMessage({ type: "OJAF_GET_SETTINGS" }));
+    }
     await sendRuntimeMessage({ type: "OJAF_AGENT_CLEAR_STAGED_PROFILE" }).catch(() => undefined);
     stagedProfileCache = null;
     document.getElementById("importStagedProfile").hidden = true;

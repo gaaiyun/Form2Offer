@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>销售管理培训生 - 示例消费品有限公司</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 760px; margin: 24px auto; }
+      [class*="apply-field-"] { margin: 12px 0; }
+      [class*="title-"] { font-weight: 600; margin-bottom: 4px; }
+      input, select, textarea { width: 100%; padding: 6px; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <section class="job-detail">
+      <h1>销售管理培训生</h1>
+      <div class="company-name">示例消费品有限公司</div>
+      <div><h3>岗位职责</h3><p>负责区域渠道开拓与重点客户关系维护，跟进门店动销数据。</p></div>
+      <div><h3>任职要求</h3><p>2027届本科及以上学历，专业不限；粤语优先。每人限投1个岗位。</p></div>
+    </section>
+    <form id="applyForm" onsubmit="event.preventDefault(); window.__form2OfferSubmitCount += 1;">
+      <div class="apply-field-a1b2"><div class="title-c3d4">姓名<span class="polyglot-separator"> / </span>Name</div><div class="ctrl-e5"><input id="candidateName" /></div></div>
+      <div class="apply-field-a1b3"><div class="title-c3d5">邮箱 / Email</div><div class="ctrl-e6"><input id="email" value="prefilled-wrong@example.com" /></div></div>
+      <div class="apply-field-a1b4"><div class="title-c3d6">专业排名</div><div class="ctrl-e7"><select id="rank"><option value="">请选择</option><option value="1">前5%</option><option value="2">前20%</option><option value="3">前50%</option><option value="4">其他</option></select></div></div>
+      <div class="apply-field-a1b5"><div class="title-c3d7">实习开始时间</div><div class="ctrl-e8"><input id="internStart" type="date" /></div></div>
+      <div class="apply-field-a1b6"><div class="title-c3d8">为什么申请该岗位？</div><div class="ctrl-e9"><textarea id="whyApply" maxlength="300" rows="4"></textarea></div></div>
+      <div class="apply-field-a1b7"><div class="title-c3d9">身份证号</div><div class="ctrl-f0"><input id="idNumber" value="110101200001011234" /></div></div>
+      <div class="apply-field-a1b8"><div class="title-c3e0">上传简历</div><div class="ctrl-f1"><input id="resumeFile" type="file" onchange="window.__form2OfferUploadCount += 1" /></div></div>
+      <button type="submit">提交申请</button>
+    </form>
+    <script>
+      window.__form2OfferSubmitCount = 0;
+      window.__form2OfferUploadCount = 0;
+    </script>
+  </body>
+</html>
