@@ -765,11 +765,10 @@ async function handleBridgeMessage(socket, raw) {
     await openReviewForAgentSession(message.sessionId).catch(() => undefined);
     return;
   }
-  if (!message.id || !["list_tabs", "read_form"].includes(message.type)) return;
+  if (!message.id || !["list_tabs", "read_form", "debug_autofill"].includes(message.type)) return;
   try {
-    const data = message.type === "list_tabs"
-      ? await listTabsForAgent(message.args || {})
-      : await readFormForAgent(message.args || {});
+    const handlers = { list_tabs: listTabsForAgent, read_form: readFormForAgent, debug_autofill: debugAutofillForAgent };
+    const data = await handlers[message.type](message.args || {});
     socket.send(JSON.stringify({ replyTo: message.id, ok: true, data }));
   } catch (error) {
     socket.send(JSON.stringify({ replyTo: message.id, ok: false, error: String(error?.message || error).slice(0, 500) }));
@@ -847,6 +846,24 @@ async function readFormForAgent(args = {}) {
   initiated[session.id] = { reviewOpened: false };
   await chrome.storage.session.set({ [AGENT_SESSION_TABS_KEY]: tabs, [AGENT_INITIATED_SESSIONS_KEY]: initiated });
   return { sessionId: session.id, tab: describeTab(tab) };
+}
+
+// 调试：返回扩展在该标签页上一次“开始填写”的逐字段记录（mode=last），
+// 或按当前资料与策略算出的只读预览（mode=preview，不点击、不写网页）。
+async function debugAutofillForAgent(args = {}) {
+  const values = await chrome.storage.local.get([STORAGE_KEYS.agentLink]);
+  if (!normalizeAgentLink(values[STORAGE_KEYS.agentLink]).enabled) {
+    throw new Error("用户没有开启“允许本地 Agent 读取浏览器表单”。");
+  }
+  const tab = await resolveAgentTab(args);
+  if (!tab?.id || !/^https?:/i.test(tab.url || "")) throw new Error("没有找到可调试的招聘网页标签页。");
+  const origin = new URL(tab.url).origin;
+  const allowed = await chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false);
+  if (!allowed) throw new Error(`Form2Offer 没有 ${origin} 的访问权限。`);
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_SCRIPT_FILES });
+  const type = args.mode === "preview" ? "OJAF_GET_AUTOFILL_PREVIEW" : "OJAF_GET_DEBUG_SNAPSHOT";
+  const data = await sendMessageToTab(tab.id, { type });
+  return { tab: describeTab(tab), mode: args.mode === "preview" ? "preview" : "last", data: data || null };
 }
 
 async function openReviewForAgentSession(sessionId) {

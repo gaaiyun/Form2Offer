@@ -2641,11 +2641,13 @@
     return expanded;
   }
 
-  async function scanForm() {
+  async function scanForm(options = {}) {
     currentSiteAdapter = detectSiteAdapter();
-    const expandedEditCards = await expandEditableCardsForScan();
-    const expandedKnownRepeatItems = await expandKnownProfileRepeatersForScan();
-    const expandedProjectItems = await expandProjectRepeatersForScan();
+    // expand:false 用于只读预览：不点击“编辑/添加”，不改动网页。
+    const expand = options.expand !== false;
+    const expandedEditCards = expand ? await expandEditableCardsForScan() : 0;
+    const expandedKnownRepeatItems = expand ? await expandKnownProfileRepeatersForScan() : 0;
+    const expandedProjectItems = expand ? await expandProjectRepeatersForScan() : 0;
     const controls = collectVisibleControls();
 
     const fields = controls.map((element) => buildFieldMeta(element));
@@ -9150,6 +9152,44 @@
     };
   }
 
+  // 只读填写预览：按本地规则与当前安全策略算出每个字段会填什么、为什么不填，不写网页。
+  async function getAutofillPreview() {
+    await refreshCurrentProfile({ force: true });
+    const scan = await scanForm({ expand: false });
+    const plan = buildAutofillPlan(scan);
+    const byField = new Map();
+    for (const candidate of plan.candidates || []) {
+      if (!byField.has(candidate.fieldId)) byField.set(candidate.fieldId, candidate);
+    }
+    const fields = scan.fields.map((field) => {
+      const candidate = byField.get(field.fieldId);
+      const summary = summarizeDebugField(field);
+      return {
+        ...summary,
+        options: (field.options || []).length,
+        widget: field.cssPath ? normalizeText(field.cssPath, 160) : "",
+        candidate: candidate
+          ? {
+              ...summarizeDebugCandidate(candidate),
+              policy: globalThis.Form2OfferSafetyPolicy?.classifyCandidate?.(candidate)?.risk || ""
+            }
+          : null
+      };
+    });
+    return {
+      version: SCRIPT_VERSION,
+      page: { title: document.title, hostname: location.hostname },
+      siteAdapter: scan.siteAdapter,
+      fillPolicy: currentFillPolicy,
+      counts: {
+        fields: fields.length,
+        withCandidate: fields.filter((field) => field.candidate).length,
+        autoFill: fields.filter((field) => field.candidate?.shouldAutoFill).length
+      },
+      fields
+    };
+  }
+
   async function getAgentSnapshot() {
     await refreshCurrentProfile({ force: true });
     const scan = await scanForm();
@@ -9281,6 +9321,10 @@
 
     if (message.type === "OJAF_GET_PAGE_INSIGHT_SOURCE") {
       return getPageInsightSource();
+    }
+
+    if (message.type === "OJAF_GET_AUTOFILL_PREVIEW") {
+      return getAutofillPreview();
     }
 
     if (message.type === "OJAF_APPLY_AGENT_PLAN") {

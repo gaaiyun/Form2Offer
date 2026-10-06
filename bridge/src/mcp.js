@@ -105,6 +105,21 @@ const TOOLS = [
     annotations: { readOnlyHint: true }
   },
   {
+    name: "form2offer_debug_autofill",
+    title: "调试自动填写",
+    description: "Debug the extension's autofill on a browser tab. mode=last returns the per-field record of the user's last “开始填写” run (matched profile field, score, policy decision, fill result note). mode=preview computes a read-only plan with the current profile and safety policy without clicking or writing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tabId: { type: "integer" },
+        urlContains: { type: "string" },
+        mode: { type: "string", enum: ["last", "preview"], default: "last" }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true }
+  },
+  {
     name: "form2offer_get_session",
     title: "读取任务",
     description: "Read one sanitized session: form fields (with maxLength), profile field paths, job context, and context with platform tips, job insight and applied check.",
@@ -253,6 +268,12 @@ async function callTool(client, name, args = {}) {
       return client.request("GET", `/v1/sessions/${encodeURIComponent(args.sessionId)}`);
     case "form2offer_list_tabs":
       return client.request("POST", "/v1/browser/tabs", { urlContains: args.urlContains || "" }, { timeoutMs: 60000 });
+    case "form2offer_debug_autofill":
+      return client.request("POST", "/v1/browser/debug-autofill", {
+        tabId: args.tabId,
+        urlContains: args.urlContains || "",
+        mode: args.mode === "preview" ? "preview" : "last"
+      }, { timeoutMs: 100000 });
     case "form2offer_read_form":
       return client.request("POST", "/v1/browser/read-form", {
         tabId: args.tabId,

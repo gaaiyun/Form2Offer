@@ -73,8 +73,8 @@ test("MCP tool facade maps every public tool to bridge requests", async () => {
       return path.startsWith("/v1/sessions?state=awaiting_agent&wait=") ? { sessions: [{ id: "s9" }] } : { ok: true };
     }
   };
-  assert.equal(TOOLS.length, 13);
-  assert.equal(new Set(TOOLS.map((tool) => tool.name)).size, 13);
+  assert.equal(TOOLS.length, 14);
+  assert.equal(new Set(TOOLS.map((tool) => tool.name)).size, 14);
   await callTool(client, "form2offer_bridge_status", {});
   await callTool(client, "form2offer_list_sessions", { state: "awaiting_agent" });
   const waited = await callTool(client, "form2offer_wait_for_session", { timeoutSeconds: 5 });
@@ -90,6 +90,7 @@ test("MCP tool facade maps every public tool to bridge requests", async () => {
   await callTool(client, "form2offer_stage_profile", { package: { format: "Form2OfferProfileBackup" }, note: "n" });
   await callTool(client, "form2offer_list_tabs", { urlContains: "mokahr" });
   await callTool(client, "form2offer_read_form", { tabId: 7 });
+  await callTool(client, "form2offer_debug_autofill", { urlContains: "zhiye", mode: "preview" });
   assert.equal(waited.sessions[0].id, "s9");
   assert.deepEqual(calls.map((call) => call.path), [
     "/v1/status",
@@ -106,7 +107,8 @@ test("MCP tool facade maps every public tool to bridge requests", async () => {
     "/v1/applications/check",
     "/v1/profile-package",
     "/v1/browser/tabs",
-    "/v1/browser/read-form"
+    "/v1/browser/read-form",
+    "/v1/browser/debug-autofill"
   ]);
 });
 

@@ -628,6 +628,23 @@ document.getElementById("checkStagedProfile").addEventListener("click", () => vo
 document.getElementById("importStagedProfile").addEventListener("click", () => void importStagedProfile());
 document.getElementById("discardStagedProfile").addEventListener("click", () => void discardStagedProfile());
 document.getElementById("saveInsightSettings").addEventListener("click", () => void saveInsightSettings());
+document.getElementById("restoreProfileBackup").addEventListener("click", () => void restoreProfileBackup());
+
+// 弹窗一键导入底稿前，会把旧资料存为 profileV2Backup；这里可以恢复。
+async function restoreProfileBackup() {
+  const stored = await chrome.storage.local.get("profileV2Backup");
+  const backup = stored.profileV2Backup;
+  if (!backup?.profileV2) {
+    showToast("没有找到导入前的资料备份。", "error");
+    return;
+  }
+  if (!window.confirm(`恢复 ${new Date(backup.savedAt).toLocaleString()} 导入前的资料？当前资料会被覆盖。`)) return;
+  const profileV2 = normalizeProfileV2(backup.profileV2);
+  renderProfileSectionEditor(profileV2);
+  await sendRuntimeMessage({ type: "OJAF_SAVE_SETTINGS", payload: { profileV2 } });
+  setProfileSaved("已恢复导入前的资料。");
+  showToast("已恢复导入前的资料。");
+}
 document.getElementById("aiDraftEnabled").addEventListener("change", (event) => void saveAiDraftPolicy(event.target));
 fields.saveProfileButton.addEventListener("click", saveProfile);
 document.getElementById("exportProfile").addEventListener("click", exportProfile);

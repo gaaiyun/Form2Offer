@@ -309,6 +309,21 @@ function createBridgeServer(options) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/v1/browser/debug-autofill") {
+        if (role !== "agent") {
+          sendJson(response, 403, { ok: false, error: "Only an MCP agent can debug autofill." }, origin);
+          return;
+        }
+        const body = await readJson(request, 4096);
+        const data = await browserHub.request("debug_autofill", {
+          tabId: Number.isInteger(Number(body.tabId)) && Number(body.tabId) > 0 ? Number(body.tabId) : null,
+          urlContains: sanitizePromptText(body.urlContains, 200),
+          mode: body.mode === "preview" ? "preview" : "last"
+        }, { waitMs: browserWaitMs, timeoutMs: 60000 });
+        sendJson(response, 200, { ok: true, data }, origin);
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/v1/search") {
         const body = await readJson(request, 32768);
         sendJson(response, 200, { ok: true, data: { results: sourceRegistry.search(body.query, { limit: body.limit }) } }, origin);

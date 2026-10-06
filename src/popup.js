@@ -30,7 +30,11 @@ const els = {
   insightResume: document.getElementById("insightResume"),
   insightApplied: document.getElementById("insightApplied"),
   insightTipsBox: document.getElementById("insightTipsBox"),
-  insightTips: document.getElementById("insightTips")
+  insightTips: document.getElementById("insightTips"),
+  agentState: document.getElementById("agentState"),
+  agentHint: document.getElementById("agentHint"),
+  enableAgentLink: document.getElementById("enableAgentLink"),
+  importStagedProfile: document.getElementById("importStagedProfile")
 };
 
 const DEFAULT_START_LABEL = els.startAutofillBtn.textContent;
@@ -83,7 +87,100 @@ els.applicationCaptureForm.addEventListener("submit", (event) => {
   void saveCurrentApplication();
 });
 els.reloadExtension.addEventListener("click", () => chrome.runtime.reload());
+els.enableAgentLink.addEventListener("click", () => void enableAgentLinkFromPopup());
+els.importStagedProfile.addEventListener("click", () => void importStagedProfileFromPopup());
 initialize();
+void loadAgentPanel();
+
+let stagedProfileFromBridge = null;
+
+async function loadAgentPanel() {
+  let settings = null;
+  try {
+    settings = await sendRuntimeMessage({ type: "OJAF_GET_SETTINGS" });
+  } catch {
+    els.agentHint.textContent = "无法读取扩展设置。";
+    return;
+  }
+  if (!settings?.agentConfigured) {
+    els.agentState.textContent = "未配对";
+    els.agentHint.textContent = "在设置页“本地 Agent”区域输入 Bridge 配对码后，Claude Code / Codex 才能读取表单。";
+    return;
+  }
+  let status = null;
+  try {
+    status = await sendRuntimeMessage({ type: "OJAF_AGENT_LINK_STATUS" });
+  } catch {
+    els.agentState.textContent = "需重新加载";
+    els.agentHint.textContent = "扩展后台还是旧版本：请点上方“重新加载扩展”（或在 edge://extensions 重新加载）。";
+    els.updateBanner.hidden = false;
+    if (!els.updateText.textContent) els.updateText.textContent = "扩展文件已更新，重新加载后生效（不会清除资料）。";
+    return;
+  }
+  els.agentState.textContent = status.connected ? "已连接" : status.enabled ? "等待 Bridge" : "未开启读表";
+  els.agentHint.textContent = status.connected
+    ? `Claude Code / Codex 可以读取当前网申表单${status.includeValues ? "（含已填内容，证件号等打码）" : ""}；方案要你在审阅页确认后才写入。`
+    : status.enabled
+      ? `已开启，正在连接 Bridge${status.lastError ? `：${status.lastError}` : "（Bridge 启动后 30 秒内自动连上）"}。`
+      : "开启后，Agent 可以主动读取你打开的网申页并提交填写方案。";
+  els.enableAgentLink.hidden = Boolean(status.enabled && status.canReadAllSites);
+  try {
+    const staged = await sendRuntimeMessage({ type: "OJAF_AGENT_STAGED_PROFILE" });
+    if (staged?.staged && staged.package?.profileV2) {
+      stagedProfileFromBridge = staged;
+      els.importStagedProfile.hidden = false;
+      els.importStagedProfile.textContent = `导入 Agent 准备的资料底稿（${new Date(staged.stagedAt).toLocaleDateString()}）`;
+      els.importStagedProfile.title = staged.note || "";
+    }
+  } catch {
+    // Bridge 未运行时不显示导入入口。
+  }
+}
+
+async function enableAgentLinkFromPopup() {
+  els.enableAgentLink.disabled = true;
+  try {
+    const granted = await chrome.permissions.request({ origins: ["http://*/*", "https://*/*"] });
+    if (!granted) {
+      els.agentHint.textContent = "没有授予网站访问权限，Agent 无法读取表单。";
+      return;
+    }
+    const status = await sendRuntimeMessage({ type: "OJAF_SAVE_AGENT_LINK", payload: { enabled: true, includeValues: true } });
+    els.agentHint.textContent = status.connected ? "已开启并连上 Bridge。" : "已开启，正在连接 Bridge...";
+    await loadAgentPanel();
+  } catch (error) {
+    els.agentHint.textContent = `开启失败：${error.message}`;
+  } finally {
+    els.enableAgentLink.disabled = false;
+  }
+}
+
+async function importStagedProfileFromPopup() {
+  const staged = stagedProfileFromBridge;
+  if (!staged?.package?.profileV2) return;
+  const summary = staged.summary || {};
+  const confirmed = window.confirm(
+    `导入 Agent 准备的资料底稿？\n\n${staged.note || ""}\n共 ${summary.sectionCount || 0} 个分区、${summary.itemCount || 0} 条经历、${summary.valueCount || 0} 个字段。\n\n当前资料会先备份在扩展里，可在设置页恢复。`
+  );
+  if (!confirmed) return;
+  els.importStagedProfile.disabled = true;
+  try {
+    const current = await sendRuntimeMessage({ type: "OJAF_GET_SETTINGS" });
+    await chrome.storage.local.set({ profileV2Backup: { savedAt: new Date().toISOString(), profileV2: current.profileV2 } });
+    const extra = staged.package.form2offerSettings || {};
+    const payload = { profileV2: staged.package.profileV2 };
+    if (extra.candidateProfile) payload.candidateProfile = extra.candidateProfile;
+    if (Array.isArray(extra.resumeVersions)) payload.resumeVersions = extra.resumeVersions;
+    await sendRuntimeMessage({ type: "OJAF_SAVE_SETTINGS", payload });
+    await sendRuntimeMessage({ type: "OJAF_AGENT_CLEAR_STAGED_PROFILE" }).catch(() => undefined);
+    els.importStagedProfile.hidden = true;
+    els.agentHint.textContent = "资料底稿已导入。网页上重新点“开始填写”即可使用新资料。";
+  } catch (error) {
+    els.agentHint.textContent = `导入失败：${error.message}`;
+  } finally {
+    els.importStagedProfile.disabled = false;
+  }
+}
 
 async function initialize() {
   setStatus("点击开始填写后，右下角会实时显示当前是本地规则还是 AI；AI 不可用也能继续用本地规则填写。");

@@ -1,6 +1,6 @@
 {
   "name": "form2offer",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "description": "Local-first Chrome and Edge extension for Chinese campus job application forms.",
   "repository": {
