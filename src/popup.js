@@ -159,8 +159,12 @@ async function importStagedProfileFromPopup() {
   const staged = stagedProfileFromBridge;
   if (!staged?.package?.profileV2) return;
   const summary = staged.summary || {};
+  const policy = staged.package.form2offerSettings?.fillPolicy;
+  const policyNote = policy
+    ? `\n同时调整填写策略：${policy.fillSensitive ? "填写敏感资料（家庭、紧急联系人、政治面貌、籍贯等）" : "敏感资料待确认"}；证件号码仍需你在设置页单独开启。`
+    : "";
   const confirmed = window.confirm(
-    `导入 Agent 准备的资料底稿？\n\n${staged.note || ""}\n共 ${summary.sectionCount || 0} 个分区、${summary.itemCount || 0} 条经历、${summary.valueCount || 0} 个字段。\n\n当前资料会先备份在扩展里，可在设置页恢复。`
+    `导入 Agent 准备的资料底稿？\n\n${staged.note || ""}\n共 ${summary.sectionCount || 0} 个分区、${summary.itemCount || 0} 条经历、${summary.valueCount || 0} 个字段。${policyNote}\n\n当前资料会先备份在扩展里，可在设置页恢复。`
   );
   if (!confirmed) return;
   els.importStagedProfile.disabled = true;
@@ -171,6 +175,8 @@ async function importStagedProfileFromPopup() {
     const payload = { profileV2: staged.package.profileV2 };
     if (extra.candidateProfile) payload.candidateProfile = extra.candidateProfile;
     if (Array.isArray(extra.resumeVersions)) payload.resumeVersions = extra.resumeVersions;
+    // 底稿不能替用户打开证件号码开关。
+    if (extra.fillPolicy) payload.fillPolicy = { ...extra.fillPolicy, fillIdentity: Boolean(current.fillPolicy?.fillIdentity) };
     await sendRuntimeMessage({ type: "OJAF_SAVE_SETTINGS", payload });
     await sendRuntimeMessage({ type: "OJAF_AGENT_CLEAR_STAGED_PROFILE" }).catch(() => undefined);
     els.importStagedProfile.hidden = true;

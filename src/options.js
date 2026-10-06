@@ -904,7 +904,9 @@ async function importStagedProfile() {
     const payload = { profileV2 };
     if (extra.candidateProfile) payload.candidateProfile = extra.candidateProfile;
     if (Array.isArray(extra.resumeVersions)) payload.resumeVersions = extra.resumeVersions;
+    if (extra.fillPolicy) payload.fillPolicy = { ...extra.fillPolicy, fillIdentity: fields.fillIdentity.checked };
     await sendRuntimeMessage({ type: "OJAF_SAVE_SETTINGS", payload });
+    if (payload.fillPolicy) applyFillPolicy(payload.fillPolicy);
     if (payload.candidateProfile || payload.resumeVersions) {
       applyInsightSettings(await sendRuntimeMessage({ type: "OJAF_GET_SETTINGS" }));
     }
