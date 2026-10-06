@@ -8,10 +8,19 @@ const {
   randomPairCode,
   randomToken,
   timingSafeTokenMatch,
-  isAllowedExtensionOrigin
+  isAllowedExtensionOrigin,
+  sanitizePromptText
 } = require("./security.js");
+const { platformKnowledge } = require("./shared.js");
+const { buildSessionContext, analyzeJob, checkAppliedFromConfig } = require("./context.js");
+const { stageProfilePackage, readStagedProfile, clearStagedProfile } = require("./profile-package.js");
+
+const BRIDGE_VERSION = require("../package.json").version;
+const MAX_WAIT_SECONDS = 55;
+const CAPABILITIES = ["sessions", "wait", "knowledge", "insight", "applications", "profile-staging"];
 
 function sendJson(response, status, payload, origin = "") {
+  if (response.writableEnded) return;
   const body = JSON.stringify(payload);
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -56,20 +65,52 @@ function getBearerToken(request) {
   return match ? match[1].trim() : "";
 }
 
-function isAuthorized(request, config) {
+// agent = MCP Client（持有 mcpToken）；browser = 已配对的扩展。
+function getAuthRole(request, config) {
   const token = getBearerToken(request);
-  if (!token) return false;
-  if (token === config.mcpToken) return true;
-  return config.browserTokenHashes.some((hash) => timingSafeTokenMatch(token, hash));
+  if (!token) return null;
+  if (config.mcpToken && token === config.mcpToken) return "agent";
+  return config.browserTokenHashes.some((hash) => timingSafeTokenMatch(token, hash)) ? "browser" : null;
+}
+
+function isAuthorized(request, config) {
+  return Boolean(getAuthRole(request, config));
 }
 
 function createBridgeServer(options) {
   const config = options.config;
+  const dataDir = options.dataDir || "";
   const sessionStore = options.sessionStore;
   const sourceRegistry = options.sourceRegistry;
   const codexHost = options.codexHost;
   const agentHosts = options.agentHosts;
   const saveConfig = typeof options.saveConfig === "function" ? options.saveConfig : () => undefined;
+  const waiters = new Set();
+
+  function notifyWaiters() {
+    for (const waiter of Array.from(waiters)) {
+      const sessions = sessionStore.list({ state: waiter.state });
+      if (sessions.length > 0) {
+        waiters.delete(waiter);
+        waiter.resolve(sessions);
+      }
+    }
+  }
+
+  function waitForSessions(state, seconds, request) {
+    return new Promise((resolve) => {
+      const waiter = { state, resolve: (sessions) => { clearTimeout(timer); resolve(sessions); } };
+      const timer = setTimeout(() => {
+        waiters.delete(waiter);
+        resolve(sessionStore.list({ state }));
+      }, seconds * 1000);
+      request.on("close", () => {
+        clearTimeout(timer);
+        waiters.delete(waiter);
+      });
+      waiters.add(waiter);
+    });
+  }
 
   async function startCodex(sessionId) {
     const session = sessionStore.getInternal(sessionId);
@@ -91,6 +132,11 @@ function createBridgeServer(options) {
         host?.cleanup?.(task.taskDir);
       }
     }
+  }
+
+  function requireDataDir() {
+    if (!dataDir) throw Object.assign(new Error("Bridge data directory is not configured."), { statusCode: 503 });
+    return dataDir;
   }
 
   const server = http.createServer(async (request, response) => {
@@ -123,8 +169,9 @@ function createBridgeServer(options) {
           ok: true,
           data: {
             name: "Form2Offer Local Bridge",
-            version: "0.11.0",
+            version: BRIDGE_VERSION,
             paired: config.browserTokenHashes.length > 0,
+            capabilities: CAPABILITIES,
             agents: {
               codex: Boolean(config.codex.enabled && (agentHosts?.get?.("codex") || codexHost)),
               mcp: true
@@ -152,7 +199,8 @@ function createBridgeServer(options) {
         return;
       }
 
-      if (!isAuthorized(request, config)) {
+      const role = getAuthRole(request, config);
+      if (!role) {
         sendJson(response, 401, { ok: false, error: "Bridge authorization failed." }, origin);
         return;
       }
@@ -161,15 +209,47 @@ function createBridgeServer(options) {
         sendJson(response, 200, { ok: true, data: { sources: sourceRegistry.list() } }, origin);
         return;
       }
-      if (request.method === "GET" && url.pathname === "/v1/sessions") {
-        sendJson(response, 200, { ok: true, data: { sessions: sessionStore.list({ state: url.searchParams.get("state") }) } }, origin);
+
+      if (request.method === "GET" && url.pathname === "/v1/status") {
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            version: BRIDGE_VERSION,
+            sources: sourceRegistry.list(),
+            applicationsFile: config.applicationsFile ? { configured: true, ...checkAppliedFromConfig(config, {}) } : { configured: false },
+            resumeVersions: (config.resumeVersions || []).map((version) => ({ id: version.id, label: version.label })),
+            candidateConfigured: Object.keys(config.candidate || {}).length > 0,
+            stagedProfile: dataDir ? readStagedProfile(dataDir) : { staged: false },
+            sessions: sessionStore.list().map((session) => ({ id: session.id, state: session.state, createdAt: session.createdAt }))
+          }
+        }, origin);
         return;
       }
+
+      if (request.method === "GET" && url.pathname === "/v1/sessions") {
+        const state = url.searchParams.get("state") || "";
+        const wait = Math.min(MAX_WAIT_SECONDS, Math.max(0, Number(url.searchParams.get("wait")) || 0));
+        let sessions = sessionStore.list({ state });
+        if (sessions.length === 0 && wait > 0) {
+          sessions = await waitForSessions(state, wait, request);
+        }
+        sendJson(response, 200, { ok: true, data: { sessions } }, origin);
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/v1/sessions") {
         const body = await readJson(request);
         const session = sessionStore.create(body);
-        sendJson(response, 201, { ok: true, data: session }, origin);
-        if (session.mode === "codex") {
+        const internal = sessionStore.getInternal(session.id);
+        try {
+          sessionStore.setContext(session.id, buildSessionContext(internal.request, config));
+        } catch (error) {
+          sessionStore.setContext(session.id, { error: sanitizePromptText(error.message, 300) });
+        }
+        const created = sessionStore.list().find((item) => item.id === session.id) || session;
+        sendJson(response, 201, { ok: true, data: created }, origin);
+        notifyWaiters();
+        if (created.mode === "codex") {
           if (!config.codex.enabled) {
             sessionStore.fail(session.id, new Error("Codex Host is disabled."));
           } else {
@@ -178,9 +258,70 @@ function createBridgeServer(options) {
         }
         return;
       }
+
       if (request.method === "POST" && url.pathname === "/v1/search") {
         const body = await readJson(request, 32768);
         sendJson(response, 200, { ok: true, data: { results: sourceRegistry.search(body.query, { limit: body.limit }) } }, origin);
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/knowledge/platforms") {
+        const target = url.searchParams.get("url") || url.searchParams.get("id") || "";
+        if (!target) {
+          const platforms = platformKnowledge.listPlatforms().map((platform) => ({
+            id: platform.id,
+            name: platform.name,
+            family: platform.family,
+            confidence: platform.confidence,
+            hosts: platform.match.map((rule) => rule.host || rule.path).filter(Boolean)
+          }));
+          sendJson(response, 200, { ok: true, data: { platforms, generalRules: platformKnowledge.GENERAL_RULES.map((rule) => rule.text) } }, origin);
+          return;
+        }
+        sendJson(response, 200, { ok: true, data: platformKnowledge.getPlatformGuide(target) }, origin);
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/insight") {
+        const body = await readJson(request, 65536);
+        const result = analyzeJob({
+          title: sanitizePromptText(body.title, 160),
+          description: sanitizePromptText(body.text, 12000)
+        }, config);
+        sendJson(response, 200, { ok: true, data: result }, origin);
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/applications/check") {
+        const body = await readJson(request, 8192);
+        const result = checkAppliedFromConfig(config, {
+          company: sanitizePromptText(body.company, 120),
+          role: sanitizePromptText(body.role, 160),
+          hostname: sanitizePromptText(body.hostname, 160)
+        });
+        sendJson(response, 200, { ok: true, data: result }, origin);
+        return;
+      }
+
+      if (url.pathname === "/v1/profile-package") {
+        if (request.method === "POST") {
+          if (role !== "agent") {
+            sendJson(response, 403, { ok: false, error: "Only an MCP agent can stage a profile package." }, origin);
+            return;
+          }
+          const body = await readJson(request, 1024 * 1024);
+          sendJson(response, 200, { ok: true, data: stageProfilePackage(requireDataDir(), body.package, body.note) }, origin);
+          return;
+        }
+        if (request.method === "GET") {
+          const view = readStagedProfile(requireDataDir(), { includePackage: role === "browser" });
+          sendJson(response, 200, { ok: true, data: view }, origin);
+          return;
+        }
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/profile-package/clear") {
+        sendJson(response, 200, { ok: true, data: clearStagedProfile(requireDataDir()) }, origin);
         return;
       }
 
@@ -201,6 +342,7 @@ function createBridgeServer(options) {
       if (sessionMatch && request.method === "POST" && sessionMatch[2] === "plan") {
         const body = await readJson(request);
         sendJson(response, 200, { ok: true, data: sessionStore.submitPlan(decodeURIComponent(sessionMatch[1]), body) }, origin);
+        notifyWaiters();
         return;
       }
 
@@ -222,9 +364,12 @@ function createBridgeServer(options) {
       });
     },
     close() {
+      for (const waiter of Array.from(waiters)) waiter.resolve([]);
+      waiters.clear();
+      server.closeAllConnections?.();
       return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   };
 }
 
-module.exports = { createBridgeServer, readJson, isAuthorized };
+module.exports = { createBridgeServer, readJson, isAuthorized, getAuthRole, BRIDGE_VERSION };

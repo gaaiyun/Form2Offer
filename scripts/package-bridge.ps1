@@ -26,6 +26,11 @@ Copy-Item -LiteralPath (Join-Path $bridgeRoot 'README.md') -Destination $release
 Copy-Item -LiteralPath (Join-Path $bridgeRoot 'start-bridge.ps1') -Destination $releaseDir
 Copy-Item -LiteralPath (Join-Path $bridgeRoot 'bin\form2offer-bridge.js') -Destination (Join-Path $releaseDir 'bin')
 Copy-Item -Path (Join-Path $bridgeRoot 'src\*') -Destination (Join-Path $releaseDir 'src')
+# 平台知识库、岗位速读与填写规则与扩展共用同一份源码，发布包放在 lib/ 下由 src/shared.js 读取。
+New-Item -ItemType Directory -Path (Join-Path $releaseDir 'lib') -Force | Out-Null
+foreach ($shared in @('platform-knowledge.js', 'job-insight.js', 'fill-rules.js')) {
+  Copy-Item -LiteralPath (Join-Path $projectRoot "src\$shared") -Destination (Join-Path $releaseDir 'lib')
+}
 Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $releaseDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'NOTICE') -Destination $releaseDir
 

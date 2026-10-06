@@ -90,18 +90,13 @@ test("reads only exact approved files and rejects backup directories", () => {
   assert.match(blocked.list()[0].error, /not allowed/);
 });
 
-test("real resume regression exposes only the four configured whitelist classes", { skip: !fs.existsSync("G:\\简历_0522") }, () => {
-  const registry = new SourceRegistry({
-    resumeRoot: "G:\\简历_0522",
-    sources: [
-      "岑锴源_简历底稿.md",
-      "docs\\简历事实口径与红线.md",
-      "docs\\版本清单.md",
-      "generator\\data-i-bank.js"
-    ]
-  });
+// 本机真实资料回归：设置 FORM2OFFER_REAL_RESUME_ROOT 与 FORM2OFFER_REAL_SOURCES（逗号分隔）后运行。
+const realRoot = process.env.FORM2OFFER_REAL_RESUME_ROOT || "";
+const realSources = String(process.env.FORM2OFFER_REAL_SOURCES || "").split(",").map((value) => value.trim()).filter(Boolean);
+test("real resume regression exposes only the configured whitelist", { skip: !realRoot || realSources.length === 0 || !fs.existsSync(realRoot) }, () => {
+  const registry = new SourceRegistry({ resumeRoot: realRoot, sources: realSources });
   const listed = registry.list();
-  assert.equal(listed.length, 4);
+  assert.equal(listed.length, realSources.length);
   assert.equal(listed.every((source) => source.available), true);
   assert.equal(listed.some((source) => /backup|tmp|output|releases/i.test(source.relativePath)), false);
 });

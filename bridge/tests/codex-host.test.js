@@ -12,6 +12,21 @@ test("Codex prompt treats page text as untrusted and forbids risky actions", () 
   assert.match(prompt, /最终输出必须严格符合/);
 });
 
+test("Codex prompt surfaces platform, applied and threshold warnings from the session context", () => {
+  const prompt = buildAgentPrompt({
+    id: "session-ctx",
+    context: {
+      platform: { name: "Moka 招聘" },
+      applied: { blocking: true },
+      insight: { assessment: { verdict: "block" } }
+    }
+  });
+  assert.match(prompt, /Moka 招聘/);
+  assert.match(prompt, /已投递或结果未知/);
+  assert.match(prompt, /硬门槛不满足/);
+  assert.match(prompt, /maxLength/);
+});
+
 test("resolves the Windows npm Codex shim to Node and its real JS entrypoint", { skip: process.platform !== "win32" }, () => {
   const launcher = resolveCodexLauncher("codex");
   assert.equal(path.resolve(launcher.command), path.resolve(process.execPath));

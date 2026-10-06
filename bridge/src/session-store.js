@@ -32,6 +32,7 @@ class SessionStore {
       state: normalizedRequest.mode === "agent-pull" ? "awaiting_agent" : "queued",
       request: normalizedRequest,
       plan: null,
+      context: null,
       error: "",
       createdAt: now,
       updatedAt: now,
@@ -62,6 +63,15 @@ class SessionStore {
       .filter((session) => !state || session.state === state)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((session) => this.publicView(session));
+  }
+
+  setContext(id, context) {
+    const session = this.getInternal(id);
+    if (!session) {
+      throw new Error("Session not found or expired.");
+    }
+    session.context = context || null;
+    return this.publicView(session);
   }
 
   transition(id, state, patch = {}) {
@@ -130,6 +140,8 @@ class SessionStore {
       state: session.state,
       page: session.request.page,
       mode: session.request.mode,
+      job: { company: session.request.job?.company || "", title: session.request.job?.title || "" },
+      platform: session.context?.platform ? { id: session.context.platform.id, name: session.context.platform.name } : null,
       fieldCount: session.request.scan.fields.length,
       plan: session.plan,
       error: session.error,
@@ -137,7 +149,10 @@ class SessionStore {
       updatedAt: session.updatedAt,
       expiresAt: session.expiresAt
     };
-    if (options.includeRequest) view.request = session.request;
+    if (options.includeRequest) {
+      view.request = session.request;
+      view.context = session.context;
+    }
     return view;
   }
 }

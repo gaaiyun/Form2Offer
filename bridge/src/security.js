@@ -104,6 +104,7 @@ function sanitizeField(field = {}) {
     readOnly: Boolean(field.readOnly),
     hasCurrentValue: Boolean(field.hasCurrentValue),
     canFill: Boolean(field.canFill),
+    maxLength: Math.max(0, Math.min(100000, Number(field.maxLength) || 0)),
     section: sanitizePromptText(field.section, 180),
     nearbyText: sanitizePromptText(field.nearbyText, 260),
     groupText: sanitizePromptText(field.groupText, 220),
@@ -114,6 +115,25 @@ function sanitizeField(field = {}) {
         }))
       : []
   };
+}
+
+const KNOWN_SIGNAL_PATTERN = /^[ws#.-[]='*:()]{1,120}$/;
+
+// 岗位上下文来自招聘网页，只保留公司、职位和 JD 摘要；去掉联系方式和页面指令。
+function sanitizeJobContext(job = {}) {
+  const source = job && typeof job === "object" ? job : {};
+  return {
+    company: sanitizePromptText(source.company || source.companyName, 120),
+    title: sanitizePromptText(source.title || source.jobTitle, 160),
+    description: sanitizePromptText(redactSensitiveText(source.description || source.jd || "", 12000), 4000)
+  };
+}
+
+function sanitizeSignals(signals) {
+  return (Array.isArray(signals) ? signals : [])
+    .map((signal) => String(signal || "").trim())
+    .filter((signal) => KNOWN_SIGNAL_PATTERN.test(signal))
+    .slice(0, 20);
 }
 
 function sanitizeSessionRequest(input = {}) {
@@ -139,7 +159,8 @@ function sanitizeSessionRequest(input = {}) {
     },
     scan: { fields },
     profileCatalog: { fields: profileFields },
-    jobContext: sanitizePromptText(input.jobContext, 2000)
+    job: sanitizeJobContext(input.job || (input.jobContext ? { description: input.jobContext } : {})),
+    signals: sanitizeSignals(input.signals)
   };
 }
 
@@ -154,5 +175,6 @@ module.exports = {
   redactSensitiveText,
   redactAgentSourceText,
   classifyFieldRisk,
+  sanitizeJobContext,
   sanitizeSessionRequest
 };

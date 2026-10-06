@@ -28,6 +28,9 @@ function createDefaultConfig(overrides = {}) {
     mcpToken: randomToken(),
     resumeRoot: "",
     sources: [],
+    applicationsFile: "",
+    resumeVersions: [],
+    candidate: {},
     codex: {
       enabled: true,
       command: "codex",
@@ -55,6 +58,9 @@ function normalizeConfig(input = {}) {
     sources: Array.isArray(source.sources)
       ? source.sources.map((value) => String(value || "").trim()).filter(Boolean).slice(0, 20)
       : [],
+    applicationsFile: String(source.applicationsFile || "").trim(),
+    resumeVersions: normalizeResumeVersions(source.resumeVersions),
+    candidate: normalizeCandidate(source.candidate),
     codex: {
       ...base.codex,
       ...(source.codex && typeof source.codex === "object" ? source.codex : {}),
@@ -63,6 +69,40 @@ function normalizeConfig(input = {}) {
       timeoutMs: Math.min(600000, Math.max(15000, Number(source.codex?.timeoutMs) || base.codex.timeoutMs))
     }
   };
+}
+
+function normalizeStringList(value, limit, maxLength) {
+  return (Array.isArray(value) ? value : String(value || "").split(/[,，、]/))
+    .map((item) => String(item || "").trim().slice(0, maxLength))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+// 简历版本映射：岗位族 / 关键词 → 用户自己的简历版本，用于岗位速读推荐。
+function normalizeResumeVersions(value) {
+  return (Array.isArray(value) ? value : [])
+    .filter((item) => item && typeof item === "object" && item.id && item.label)
+    .slice(0, 60)
+    .map((item) => ({
+      id: String(item.id).trim().slice(0, 40),
+      label: String(item.label).trim().slice(0, 80),
+      families: normalizeStringList(item.families, 8, 40),
+      keywords: normalizeStringList(item.keywords, 30, 40),
+      ...(item.file ? { file: String(item.file).trim().slice(0, 400) } : {})
+    }));
+}
+
+// 用户自己的硬门槛画像：只用于本机判断岗位要求，不会发给网页。
+function normalizeCandidate(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const candidate = {};
+  if (["985", "211", "double-first-class", "other"].includes(source.schoolTier)) candidate.schoolTier = source.schoolTier;
+  if (["bachelor", "master", "phd"].includes(source.degree)) candidate.degree = source.degree;
+  if (Number(source.englishScore) > 0) candidate.englishScore = Math.round(Number(source.englishScore));
+  if (Number(source.classYear) >= 2000) candidate.classYear = Math.round(Number(source.classYear));
+  const majors = normalizeStringList(source.majorKeywords, 12, 40);
+  if (majors.length) candidate.majorKeywords = majors;
+  return candidate;
 }
 
 function readConfig(dataDir) {
@@ -92,9 +132,9 @@ function buildDefaultSources(resumeRoot, jobSource = "") {
     return [];
   }
   const sources = [
-    "岑锴源_简历底稿.md",
-    path.join("docs", "简历事实口径与红线.md"),
-    path.join("docs", "版本清单.md")
+    "resume.md",
+    path.join("docs", "facts.md"),
+    path.join("docs", "versions.md")
   ];
   if (jobSource) {
     sources.push(jobSource);
@@ -110,5 +150,7 @@ module.exports = {
   normalizeConfig,
   readConfig,
   writeConfig,
-  buildDefaultSources
+  buildDefaultSources,
+  normalizeResumeVersions,
+  normalizeCandidate
 };
