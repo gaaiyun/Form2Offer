@@ -9,6 +9,8 @@ const ALLOWED_CONTROL_TYPES = new Set([
 const BLOCKED_FIELD_PATTERN = /文件|上传|附件|照片|证件照|验证码|短信码|图形码|提交|申请|确认投递|签名|签字/i;
 const SENSITIVE_FIELD_PATTERN = /身份证|证件号|护照|军官证|电话|手机|邮箱|住址|地址|户籍|籍贯|出生|婚姻|民族|政治面貌|党员|团员|健康|疾病|残疾|血型|宗教|家庭|父亲|母亲|配偶|亲属|紧急联系人|薪资|工资|银行卡|身高|体重|性别/i;
 const DECLARATION_FIELD_PATTERN = /承诺|声明|同意|授权|真实性|背景调查|背调|违法|犯罪|处罚|失信|征信|竞业|利益冲突|服从调剂|兼职|持股|居留权/i;
+// 当前值只在 Agent 主动读取表单时随会话传入；这些字段的值一律打码。
+const SECRET_FIELD_PATTERN = /身份证|证件号|证件号码|护照|密码|口令|验证码|短信码|银行卡|卡号|社保|公积金账号/i;
 const PAGE_INSTRUCTION_PATTERN = /(?:ignore|disregard|override|system prompt|developer message|assistant|tool call|忽略.{0,8}(?:指令|规则)|系统提示|开发者消息|执行命令)/ig;
 
 function randomToken(bytes = 32) {
@@ -90,8 +92,17 @@ function classifyFieldRisk(field = {}) {
   return "standard";
 }
 
-function sanitizeField(field = {}) {
+function sanitizeCurrentValue(field = {}) {
+  if (typeof field.currentValue !== "string" || !field.currentValue.trim()) return undefined;
+  const text = [field.label, field.placeholder, field.name, field.id].filter(Boolean).join(" ");
+  if (SECRET_FIELD_PATTERN.test(text) || String(field.type || "").toLowerCase() === "password") return "【已打码】";
+  return sanitizePromptText(field.currentValue, 1000);
+}
+
+function sanitizeField(field = {}, options = {}) {
+  const currentValue = options.keepValues === true ? sanitizeCurrentValue(field) : undefined;
   return {
+    ...(currentValue !== undefined ? { currentValue } : {}),
     fieldId: sanitizePromptText(field.fieldId, 160),
     type: sanitizePromptText(field.type, 40).toLowerCase(),
     tagName: sanitizePromptText(field.tagName, 40).toLowerCase(),
@@ -139,7 +150,7 @@ function sanitizeSignals(signals) {
 function sanitizeSessionRequest(input = {}) {
   const scan = input.scan && typeof input.scan === "object" ? input.scan : {};
   const fields = Array.isArray(scan.fields)
-    ? scan.fields.slice(0, 300).map(sanitizeField).filter((field) => field.fieldId)
+    ? scan.fields.slice(0, 300).map((field) => sanitizeField(field, { keepValues: input.initiator === "agent" })).filter((field) => field.fieldId)
     : [];
   const profileFields = Array.isArray(input.profileCatalog?.fields)
     ? input.profileCatalog.fields.slice(0, 300).map((field) => ({
@@ -152,6 +163,7 @@ function sanitizeSessionRequest(input = {}) {
     : [];
   return {
     mode: input.mode === "agent-pull" ? "agent-pull" : "codex",
+    initiator: input.initiator === "agent" ? "agent" : "user",
     page: {
       origin: sanitizePageOrigin(scan.origin || input.page?.origin),
       hostname: sanitizePromptText(scan.hostname || input.page?.hostname, 160),

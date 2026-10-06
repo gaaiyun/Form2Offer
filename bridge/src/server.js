@@ -14,10 +14,12 @@ const {
 const { platformKnowledge } = require("./shared.js");
 const { buildSessionContext, analyzeJob, checkAppliedFromConfig } = require("./context.js");
 const { stageProfilePackage, readStagedProfile, clearStagedProfile } = require("./profile-package.js");
+const { BrowserHub } = require("./browser-hub.js");
 
 const BRIDGE_VERSION = require("../package.json").version;
 const MAX_WAIT_SECONDS = 55;
-const CAPABILITIES = ["sessions", "wait", "knowledge", "insight", "applications", "profile-staging"];
+const CAPABILITIES = ["sessions", "wait", "knowledge", "insight", "applications", "profile-staging", "browser"];
+const BROWSER_WAIT_MS = 35000;
 
 function sendJson(response, status, payload, origin = "") {
   if (response.writableEnded) return;
@@ -86,6 +88,8 @@ function createBridgeServer(options) {
   const agentHosts = options.agentHosts;
   const saveConfig = typeof options.saveConfig === "function" ? options.saveConfig : () => undefined;
   const waiters = new Set();
+  const browserHub = options.browserHub || new BrowserHub({ config, version: BRIDGE_VERSION });
+  const browserWaitMs = Number.isFinite(Number(options.browserWaitMs)) ? Number(options.browserWaitMs) : BROWSER_WAIT_MS;
 
   function notifyWaiters() {
     for (const waiter of Array.from(waiters)) {
@@ -220,6 +224,7 @@ function createBridgeServer(options) {
             resumeVersions: (config.resumeVersions || []).map((version) => ({ id: version.id, label: version.label })),
             candidateConfigured: Object.keys(config.candidate || {}).length > 0,
             stagedProfile: dataDir ? readStagedProfile(dataDir) : { staged: false },
+            browser: browserHub.status(),
             sessions: sessionStore.list().map((session) => ({ id: session.id, state: session.state, createdAt: session.createdAt }))
           }
         }, origin);
@@ -256,6 +261,40 @@ function createBridgeServer(options) {
             void startCodex(session.id);
           }
         }
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/browser/status") {
+        sendJson(response, 200, { ok: true, data: browserHub.status() }, origin);
+        return;
+      }
+
+      // Agent 主动读取浏览器：由已连接的扩展执行，结果是一个可直接提交方案的会话。
+      if (request.method === "POST" && url.pathname === "/v1/browser/tabs") {
+        if (role !== "agent") {
+          sendJson(response, 403, { ok: false, error: "Only an MCP agent can list browser tabs." }, origin);
+          return;
+        }
+        const body = await readJson(request, 4096);
+        const data = await browserHub.request("list_tabs", { urlContains: sanitizePromptText(body.urlContains, 200) }, { waitMs: browserWaitMs, timeoutMs: 15000 });
+        sendJson(response, 200, { ok: true, data }, origin);
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/browser/read-form") {
+        if (role !== "agent") {
+          sendJson(response, 403, { ok: false, error: "Only an MCP agent can read browser forms." }, origin);
+          return;
+        }
+        const body = await readJson(request, 4096);
+        const result = await browserHub.request("read_form", {
+          tabId: Number.isInteger(Number(body.tabId)) && Number(body.tabId) > 0 ? Number(body.tabId) : null,
+          urlContains: sanitizePromptText(body.urlContains, 200),
+          includeValues: body.includeValues !== false
+        }, { waitMs: browserWaitMs, timeoutMs: 45000 });
+        const session = result?.sessionId ? sessionStore.get(result.sessionId) : null;
+        if (!session) throw Object.assign(new Error("扩展已读取表单，但没有生成会话。"), { statusCode: 502 });
+        sendJson(response, 200, { ok: true, data: { tab: result.tab || null, session } }, origin);
         return;
       }
 
@@ -341,8 +380,11 @@ function createBridgeServer(options) {
       }
       if (sessionMatch && request.method === "POST" && sessionMatch[2] === "plan") {
         const body = await readJson(request);
-        sendJson(response, 200, { ok: true, data: sessionStore.submitPlan(decodeURIComponent(sessionMatch[1]), body) }, origin);
+        const submitted = sessionStore.submitPlan(decodeURIComponent(sessionMatch[1]), body);
+        sendJson(response, 200, { ok: true, data: submitted }, origin);
         notifyWaiters();
+        // 通知扩展：Agent 主动发起的会话由扩展自动打开审阅页。
+        browserHub.notify("plan_ready", { sessionId: submitted.id });
         return;
       }
 
@@ -352,8 +394,11 @@ function createBridgeServer(options) {
     }
   });
 
+  server.on("upgrade", (request, socket) => browserHub.handleUpgrade(request, socket));
+
   return {
     server,
+    browserHub,
     listen() {
       return new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -364,6 +409,7 @@ function createBridgeServer(options) {
       });
     },
     close() {
+      browserHub.close();
       for (const waiter of Array.from(waiters)) waiter.resolve([]);
       waiters.clear();
       server.closeAllConnections?.();

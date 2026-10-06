@@ -12,6 +12,8 @@ const MAX_PROFILE_FILE_BYTES = 900 * 1024;
 
 const INSTRUCTIONS = [
   "Form2Offer 是本地网申填表助手。Agent 只提交填写方案，用户在扩展审阅页勾选确认后才会写入招聘网页。",
+  "主动读取浏览器：form2offer_list_tabs 列出用户浏览器里打开的网页；form2offer_read_form 读取当前或指定标签页的表单（字段、选项、必填、字数上限、当前已填内容，证件号/密码/验证码会打码），同时返回一个可直接提交方案的 session。",
+  "提交方案后扩展会自动弹出审阅页给用户确认。浏览器未连接时，提示用户打开 Edge、确认 Form2Offer 已配对并在设置页开启“允许本地 Agent 读取浏览器表单”。",
   "领取任务：用户在招聘页点“交给本地 Agent”（MCP 模式）后，用 form2offer_wait_for_session 等待或 form2offer_list_sessions 查看 awaiting_agent 任务。",
   "读任务：form2offer_get_session 返回字段（含 maxLength）、资料路径目录 profileCatalog，以及 context：平台坑点 tips/agentNotes、通用规则 generalRules、岗位速读 insight、投递查重 applied。",
   "出方案：普通字段优先给 sourcePath；开放题可直接给 value，但必须能在 form2offer_search_resume 找到证据，不编造经历和数字，并遵守 maxLength。",
@@ -75,6 +77,28 @@ const TOOLS = [
       properties: {
         state: { type: "string", default: "awaiting_agent" },
         timeoutSeconds: { type: "integer", minimum: 1, maximum: MAX_WAIT_SECONDS, default: 120 }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true }
+  },
+  {
+    name: "form2offer_list_tabs",
+    title: "列出浏览器标签页",
+    description: "List http(s) tabs open in the user's browser (tabId, title, origin, path, active, detected recruitment platform). Requires the extension link to be enabled.",
+    inputSchema: { type: "object", properties: { urlContains: { type: "string", description: "只列出 URL 含该文字的标签页" } }, additionalProperties: false },
+    annotations: { readOnlyHint: true }
+  },
+  {
+    name: "form2offer_read_form",
+    title: "读取浏览器表单",
+    description: "Read the application form in the user's browser tab (the active tab by default, or tabId / urlContains): fields with labels, options, required flags, maxLength and current values (secrets masked), platform tips, job insight and applied check. Returns a session you can answer with form2offer_submit_plan.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tabId: { type: "integer", description: "form2offer_list_tabs 返回的 tabId；不填则读当前活动标签页" },
+        urlContains: { type: "string", description: "按 URL 片段选择标签页" },
+        includeValues: { type: "boolean", default: true, description: "是否带回网页当前已填内容（需扩展设置允许）" }
       },
       additionalProperties: false
     },
@@ -227,6 +251,14 @@ async function callTool(client, name, args = {}) {
       return waitForSession(client, args);
     case "form2offer_get_session":
       return client.request("GET", `/v1/sessions/${encodeURIComponent(args.sessionId)}`);
+    case "form2offer_list_tabs":
+      return client.request("POST", "/v1/browser/tabs", { urlContains: args.urlContains || "" }, { timeoutMs: 60000 });
+    case "form2offer_read_form":
+      return client.request("POST", "/v1/browser/read-form", {
+        tabId: args.tabId,
+        urlContains: args.urlContains || "",
+        includeValues: args.includeValues !== false
+      }, { timeoutMs: 100000 });
     case "form2offer_search_resume":
       return client.request("POST", "/v1/search", { query: args.query, limit: args.limit });
     case "form2offer_submit_plan":

@@ -140,6 +140,7 @@ class SessionStore {
       state: session.state,
       page: session.request.page,
       mode: session.request.mode,
+      initiator: session.request.initiator || "user",
       job: { company: session.request.job?.company || "", title: session.request.job?.title || "" },
       platform: session.context?.platform ? { id: session.context.platform.id, name: session.context.platform.name } : null,
       fieldCount: session.request.scan.fields.length,

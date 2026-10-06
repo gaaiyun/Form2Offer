@@ -8,7 +8,7 @@
     "form2offer-bridge": "bin/form2offer-bridge.js"
   },
   "scripts": {
-    "check": "node --check bin/form2offer-bridge.js && node --check src/config.js && node --check src/security.js && node --check src/sources.js && node --check src/plan.js && node --check src/session-store.js && node --check src/agent-host.js && node --check src/codex-host.js && node --check src/server.js && node --check src/mcp.js && node --check src/shared.js && node --check src/context.js && node --check src/applications.js && node --check src/profile-package.js",
+    "check": "node --check bin/form2offer-bridge.js && node --check src/config.js && node --check src/security.js && node --check src/sources.js && node --check src/plan.js && node --check src/session-store.js && node --check src/agent-host.js && node --check src/codex-host.js && node --check src/server.js && node --check src/mcp.js && node --check src/shared.js && node --check src/context.js && node --check src/applications.js && node --check src/profile-package.js && node --check src/browser-hub.js",
     "test": "node --test tests/*.test.js"
   },
   "engines": {
