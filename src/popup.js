@@ -20,7 +20,17 @@ const els = {
   captureStatus: document.getElementById("captureStatus"),
   captureChannel: document.getElementById("captureChannel"),
   captureNotes: document.getElementById("captureNotes"),
-  saveApplication: document.getElementById("saveApplication")
+  saveApplication: document.getElementById("saveApplication"),
+  updateBanner: document.getElementById("updateBanner"),
+  updateText: document.getElementById("updateText"),
+  reloadExtension: document.getElementById("reloadExtension"),
+  insightPlatform: document.getElementById("insightPlatform"),
+  insightSummary: document.getElementById("insightSummary"),
+  insightItems: document.getElementById("insightItems"),
+  insightResume: document.getElementById("insightResume"),
+  insightApplied: document.getElementById("insightApplied"),
+  insightTipsBox: document.getElementById("insightTipsBox"),
+  insightTips: document.getElementById("insightTips")
 };
 
 const DEFAULT_START_LABEL = els.startAutofillBtn.textContent;
@@ -31,8 +41,16 @@ const CONTENT_SCRIPT_FILES = [
   "src/profile-utils.js",
   "src/job-tracker.js",
   "src/answer-library.js",
+  "src/platform-knowledge.js",
+  "src/fill-rules.js",
   "src/content.js"
 ];
+const VERDICT_TEXT = {
+  ok: "未发现不满足的硬门槛",
+  risk: "有需要留意的要求",
+  block: "有硬门槛不满足，建议先别投",
+  unknown: "在设置页填写“我的门槛”后可判断是否满足"
+};
 let capturedJobPageInfo = null;
 let capturedJobCandidates = [];
 
@@ -64,13 +82,108 @@ els.applicationCaptureForm.addEventListener("submit", (event) => {
   event.preventDefault();
   void saveCurrentApplication();
 });
+els.reloadExtension.addEventListener("click", () => chrome.runtime.reload());
 initialize();
 
 async function initialize() {
   setStatus("点击开始填写后，右下角会实时显示当前是本地规则还是 AI；AI 不可用也能继续用本地规则填写。");
   populateCaptureStatuses();
   els.captureAppliedAt.value = toLocalDateTimeInput(new Date());
-  await Promise.allSettled([syncRuntimeState(), loadCurrentJobPageInfo()]);
+  await Promise.allSettled([syncRuntimeState(), loadCurrentJobPageInfo(), loadPageInsight(), checkForExtensionUpdate()]);
+}
+
+// 解包安装时，磁盘上的 manifest 会先于运行中的扩展更新；版本不同就提示重载。
+async function checkForExtensionUpdate() {
+  const running = chrome.runtime.getManifest().version;
+  const response = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" });
+  const onDisk = (await response.json())?.version || running;
+  if (onDisk !== running) {
+    els.updateText.textContent = `扩展文件已更新到 ${onDisk}，当前运行的是 ${running}。重新加载后生效（不会清除资料）。`;
+    els.updateBanner.hidden = false;
+  }
+}
+
+async function loadPageInsight() {
+  let source = null;
+  try {
+    source = (await sendToActiveTab({ type: "OJAF_GET_PAGE_INSIGHT_SOURCE" }))?.data || null;
+  } catch {
+    els.insightSummary.textContent = "当前页面无法读取（浏览器内置页或未授权页面）。";
+    return;
+  }
+  renderPlatform(source);
+  const job = source?.job || {};
+  if (!job.title && !job.description) {
+    els.insightSummary.textContent = "这一页没有找到岗位描述；打开职位详情页可查看岗位类型和门槛。";
+  } else {
+    try {
+      renderInsight(await sendRuntimeMessage({ type: "OJAF_JOB_INSIGHT", payload: job }), job);
+    } catch (error) {
+      els.insightSummary.textContent = `岗位速读失败：${error.message}`;
+    }
+  }
+  await renderAppliedCheck(job, source?.hostname || "");
+}
+
+function renderPlatform(source) {
+  const platform = source?.platform;
+  els.insightPlatform.textContent = platform ? platform.name : "";
+  const tips = (source?.tips || []).length ? source.tips : [];
+  els.insightTips.replaceChildren(...tips.map((tip) => {
+    const item = document.createElement("li");
+    item.textContent = tip;
+    return item;
+  }));
+  els.insightTipsBox.hidden = tips.length === 0;
+  if (platform?.parse?.overwrites === "high") {
+    els.insightTipsBox.open = true;
+  }
+}
+
+function renderInsight(result, job) {
+  const analysis = result?.analysis || {};
+  const assessment = result?.assessment || { verdict: "unknown", items: [] };
+  const family = analysis.primaryFamily?.label || "未识别";
+  els.insightSummary.textContent = `${job.title ? `${job.title}：` : ""}${family}。${VERDICT_TEXT[assessment.verdict] || ""}`;
+  els.insightItems.replaceChildren(...(assessment.items || []).slice(0, 8).map((item) => {
+    const li = document.createElement("li");
+    li.className = item.status;
+    li.textContent = item.text;
+    return li;
+  }));
+  if (result?.recommendedResume) {
+    els.insightResume.textContent = `建议简历：${result.recommendedResume.id} ${result.recommendedResume.label}（${result.recommendedResume.reason}）`;
+    els.insightResume.hidden = false;
+  }
+}
+
+async function renderAppliedCheck(job, hostname) {
+  if (!job.company && !hostname) return;
+  let settings = null;
+  try {
+    settings = await sendRuntimeMessage({ type: "OJAF_GET_SETTINGS" });
+  } catch {
+    return;
+  }
+  if (!settings?.agentConfigured) return;
+  try {
+    const result = await sendRuntimeMessage({ type: "OJAF_AGENT_CHECK_APPLIED", payload: { company: job.company, role: job.title, hostname } });
+    if (result?.error && !(result.matches || []).length) {
+      return;
+    }
+    const top = (result?.matches || [])[0];
+    if (!top) {
+      els.insightApplied.textContent = `投递记录：没有查到${job.company ? `“${job.company}”` : "本站"}的记录。`;
+      els.insightApplied.classList.remove("warn");
+    } else {
+      const statusText = { submitted: "已投递", offer: "已获 offer", submit_unknown: "提交结果未知", in_progress: "填写中", needs_user: "待本人处理", skipped: "暂不投", withdrawn: "已放弃", not_applied: "确认未投" }[top.status] || top.status;
+      els.insightApplied.textContent = `投递记录：${top.company}${top.role ? ` · ${top.role}` : ""} —— ${statusText}${result.blocking ? "，同公司默认不再投" : ""}`;
+      els.insightApplied.classList.toggle("warn", Boolean(result.blocking));
+    }
+    els.insightApplied.hidden = false;
+  } catch {
+    // Bridge 未运行时不打扰；查重是附加信息。
+  }
 }
 
 async function loadCurrentJobPageInfo() {

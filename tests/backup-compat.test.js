@@ -24,8 +24,8 @@ test("public manifest stays least-privilege and independently branded", () => {
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.short_name, "Form2Offer");
-  assert.equal(manifest.permissions.includes("alarms"), false);
   assert.equal(Object.hasOwn(manifest, "host_permissions"), false);
-  assert.deepEqual(manifest.permissions, ["activeTab", "scripting", "storage"]);
+  // alarms 只用于 Bridge 本机连接断开后定时重连，不带权限警告；站点权限仍是可选授权。
+  assert.deepEqual(manifest.permissions, ["activeTab", "alarms", "scripting", "storage"]);
   assert.equal(Object.hasOwn(manifest.background, "type"), false);
 });

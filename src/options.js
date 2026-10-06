@@ -622,6 +622,13 @@ fields.saveAgentConfig.addEventListener("click", () => void saveAgentSettings())
 fields.checkAgentBridge.addEventListener("click", () => void checkAgentBridge());
 fields.pairAgentBridge.addEventListener("click", () => void pairAgentBridge());
 fields.loadAgentSources.addEventListener("click", () => void loadAgentSources());
+document.getElementById("agentLinkEnabled").addEventListener("change", () => void saveAgentLinkSettings());
+document.getElementById("agentLinkIncludeValues").addEventListener("change", () => void saveAgentLinkSettings());
+document.getElementById("checkStagedProfile").addEventListener("click", () => void checkStagedProfile());
+document.getElementById("importStagedProfile").addEventListener("click", () => void importStagedProfile());
+document.getElementById("discardStagedProfile").addEventListener("click", () => void discardStagedProfile());
+document.getElementById("saveInsightSettings").addEventListener("click", () => void saveInsightSettings());
+document.getElementById("aiDraftEnabled").addEventListener("change", (event) => void saveAiDraftPolicy(event.target));
 fields.saveProfileButton.addEventListener("click", saveProfile);
 document.getElementById("exportProfile").addEventListener("click", exportProfile);
 document.getElementById("importProfile").addEventListener("click", () => fields.profileFileInput.click());
@@ -635,6 +642,7 @@ fields.modelPreset.addEventListener("change", () => {
   }
 });
 fields.model.addEventListener("input", syncModelPresetFromCurrentModel);
+document.getElementById("apiProviderPreset").addEventListener("change", (event) => applyApiProviderPreset(event.target.value));
 fields.apiMode.addEventListener("change", async () => {
   updateModeBlocks();
   await maybeAutoRefreshModelList();
@@ -670,6 +678,8 @@ async function loadSettings() {
     applyApiConfig(settings.apiConfig);
     applyFillPolicy(settings.fillPolicy);
     applyAgentConfig(settings.agentConfig || globalThis.Form2OfferAgentBridge.DEFAULT_AGENT_CONFIG);
+    applyInsightSettings(settings);
+    void refreshAgentLinkStatus();
     setFillPolicySaved("填写策略已加载。", settings.fillPolicy);
     setApiSaved("API 设置已加载，当前没有未保存修改。");
     renderProfileNav();
@@ -755,6 +765,222 @@ async function loadAgentSources() {
     setAgentFeedback(`已读取 ${sources.length} 个白名单资料源。`, false, true);
   } catch (error) { setAgentFeedback(`读取失败：${error.message}`, true); }
   finally { setAgentBusy(false); }
+}
+
+function describeAgentLink(status = {}) {
+  if (!status.enabled) return "未开启：Agent 只能处理你在弹窗里点“交给本地 Agent”发起的任务。";
+  if (!status.paired) return "已开启，但尚未与 Bridge 配对。请先填写配对码并点“配对”。";
+  if (!status.canReadAllSites) return "已开启，但还没有网站访问权限；请关闭后重新开启并在弹窗中允许。";
+  if (status.connected) return `已连接 Bridge。Agent 现在可以读取浏览器表单${status.includeValues ? "（含已填内容）" : "（仅字段结构）"}。`;
+  return `已开启，正在等待 Bridge${status.lastError ? `：${status.lastError}` : "。Bridge 启动后会在 30 秒内自动连上。"}`;
+}
+
+async function refreshAgentLinkStatus() {
+  try {
+    const status = await sendRuntimeMessage({ type: "OJAF_AGENT_LINK_STATUS" });
+    document.getElementById("agentLinkEnabled").checked = Boolean(status.enabled);
+    document.getElementById("agentLinkIncludeValues").checked = status.includeValues !== false;
+    document.getElementById("agentLinkFeedback").textContent = describeAgentLink(status);
+  } catch (error) {
+    document.getElementById("agentLinkFeedback").textContent = `读取连接状态失败：${error.message}`;
+  }
+}
+
+async function saveAgentLinkSettings() {
+  const enabledBox = document.getElementById("agentLinkEnabled");
+  const includeValues = document.getElementById("agentLinkIncludeValues").checked;
+  const feedback = document.getElementById("agentLinkFeedback");
+  let enabled = enabledBox.checked;
+  try {
+    if (enabled) {
+      // 读取任意招聘网站需要站点权限；在用户点击开关时申请。
+      const granted = await requestOptionalPermissions({ origins: ["http://*/*", "https://*/*"] });
+      if (!granted) {
+        enabled = false;
+        enabledBox.checked = false;
+        feedback.textContent = "没有授予网站访问权限，未开启。";
+      }
+      await saveAgentSettings({ requestPermission: false }).catch(() => undefined);
+    }
+    const status = await sendRuntimeMessage({ type: "OJAF_SAVE_AGENT_LINK", payload: { enabled, includeValues } });
+    feedback.textContent = describeAgentLink(status);
+  } catch (error) {
+    feedback.textContent = `保存失败：${error.message}`;
+  }
+}
+
+let stagedProfileCache = null;
+
+function summarizeProfileDiff(current, next) {
+  const lines = [];
+  const sectionKeys = new Set([...Object.keys(current?.sections || {}), ...Object.keys(next?.sections || {})]);
+  const flatten = (section) => {
+    const map = new Map();
+    if (!section) return map;
+    for (const [key, value] of Object.entries(section.values || {})) map.set(key, String(value ?? ""));
+    (section.custom || []).forEach((row) => map.set(`自定义·${row.label}`, String(row.value ?? "")));
+    (section.items || []).forEach((item, index) => {
+      for (const [key, value] of Object.entries(item?.values || {})) map.set(`第${index + 1}条·${key}`, String(value ?? ""));
+      (item?.custom || []).forEach((row) => map.set(`第${index + 1}条·${row.label}`, String(row.value ?? "")));
+    });
+    return map;
+  };
+  for (const key of sectionKeys) {
+    const before = flatten(current?.sections?.[key]);
+    const after = flatten(next?.sections?.[key]);
+    const title = next?.sections?.[key]?.title || current?.sections?.[key]?.title || key;
+    const changed = [];
+    for (const [field, value] of after) {
+      if (!before.has(field)) changed.push(`+ ${field}`);
+      else if (before.get(field) !== value) changed.push(`~ ${field}`);
+    }
+    for (const field of before.keys()) {
+      if (!after.has(field)) changed.push(`- ${field}`);
+    }
+    if (changed.length) lines.push(`【${title}】${changed.length} 处：${changed.slice(0, 12).join("，")}${changed.length > 12 ? " …" : ""}`);
+  }
+  return lines;
+}
+
+async function checkStagedProfile() {
+  const preview = document.getElementById("stagedProfilePreview");
+  const importButton = document.getElementById("importStagedProfile");
+  const discardButton = document.getElementById("discardStagedProfile");
+  try {
+    const staged = await sendRuntimeMessage({ type: "OJAF_AGENT_STAGED_PROFILE" });
+    stagedProfileCache = staged?.staged ? staged : null;
+    importButton.hidden = !stagedProfileCache;
+    discardButton.hidden = !stagedProfileCache;
+    preview.hidden = false;
+    if (!stagedProfileCache) {
+      preview.textContent = "Bridge 里没有暂存的资料底稿。";
+      return;
+    }
+    const next = normalizeProfileV2(staged.package.profileV2);
+    const diff = summarizeProfileDiff(collectProfileV2FromEditor(), next);
+    preview.textContent = [
+      `暂存时间：${new Date(staged.stagedAt).toLocaleString()}`,
+      staged.note ? `说明：${staged.note}` : "",
+      `共 ${staged.summary?.sectionCount || 0} 个分区、${staged.summary?.itemCount || 0} 条经历、${staged.summary?.valueCount || 0} 个字段。`,
+      diff.length ? "与当前资料的差异（+ 新增 ~ 修改 - 删除）：" : "与当前资料没有差异。",
+      ...diff
+    ].filter(Boolean).join("\n");
+  } catch (error) {
+    preview.hidden = false;
+    preview.textContent = `读取失败：${error.message}。请确认 Bridge 已启动并完成配对。`;
+  }
+}
+
+async function importStagedProfile() {
+  if (!stagedProfileCache?.package?.profileV2) return;
+  if (!window.confirm("导入会用暂存底稿覆盖当前资料。会先下载一份当前资料备份。是否继续？")) return;
+  try {
+    await exportProfile();
+    const profileV2 = normalizeProfileV2(stagedProfileCache.package.profileV2);
+    renderProfileSectionEditor(profileV2);
+    await sendRuntimeMessage({ type: "OJAF_SAVE_SETTINGS", payload: { profileV2 } });
+    await sendRuntimeMessage({ type: "OJAF_AGENT_CLEAR_STAGED_PROFILE" }).catch(() => undefined);
+    stagedProfileCache = null;
+    document.getElementById("importStagedProfile").hidden = true;
+    document.getElementById("discardStagedProfile").hidden = true;
+    document.getElementById("stagedProfilePreview").textContent = "已导入并保存到本机，暂存底稿已清除。";
+    setProfileSaved("资料已从 Agent 底稿导入并保存到本机。");
+    showToast("资料底稿已导入。");
+  } catch (error) {
+    showToast(`导入失败：${error.message}`, "error");
+  }
+}
+
+async function discardStagedProfile() {
+  if (!window.confirm("丢弃 Bridge 里的暂存底稿？当前资料不受影响。")) return;
+  try {
+    await sendRuntimeMessage({ type: "OJAF_AGENT_CLEAR_STAGED_PROFILE" });
+    stagedProfileCache = null;
+    document.getElementById("importStagedProfile").hidden = true;
+    document.getElementById("discardStagedProfile").hidden = true;
+    document.getElementById("stagedProfilePreview").textContent = "暂存底稿已丢弃。";
+  } catch (error) {
+    showToast(`丢弃失败：${error.message}`, "error");
+  }
+}
+
+function applyInsightSettings(settings = {}) {
+  const candidate = settings.candidateProfile || {};
+  document.getElementById("candidateSchoolTier").value = candidate.schoolTier || "";
+  document.getElementById("candidateDegree").value = candidate.degree || "";
+  document.getElementById("candidateEnglishScore").value = candidate.englishScore || "";
+  document.getElementById("candidateClassYear").value = candidate.classYear || "";
+  document.getElementById("candidateMajors").value = (candidate.majorKeywords || []).join(", ");
+  document.getElementById("resumeVersions").value = globalThis.Form2OfferJobInsight?.formatResumeVersionLines(settings.resumeVersions || []) || "";
+  const policy = settings.aiDraftPolicy || {};
+  document.getElementById("aiDraftEnabled").checked = Boolean(policy.enabled);
+  document.getElementById("aiDraftFeedback").textContent = policy.enabled
+    ? `已开启（${policy.consentedAt ? new Date(policy.consentedAt).toLocaleString() : "已确认"}）。`
+    : "未开启：起草按钮会提示你先在这里确认。";
+}
+
+async function saveInsightSettings() {
+  const feedback = document.getElementById("insightFeedback");
+  try {
+    const resumeVersions = globalThis.Form2OfferJobInsight.parseResumeVersionLines(document.getElementById("resumeVersions").value);
+    await sendRuntimeMessage({
+      type: "OJAF_SAVE_SETTINGS",
+      payload: {
+        candidateProfile: {
+          schoolTier: document.getElementById("candidateSchoolTier").value,
+          degree: document.getElementById("candidateDegree").value,
+          englishScore: document.getElementById("candidateEnglishScore").value,
+          classYear: document.getElementById("candidateClassYear").value,
+          majorKeywords: document.getElementById("candidateMajors").value
+        },
+        resumeVersions
+      }
+    });
+    feedback.textContent = `已保存：${resumeVersions.length} 个简历版本。`;
+    feedback.classList.add("is-saved");
+  } catch (error) {
+    feedback.textContent = `保存失败：${error.message}`;
+    feedback.classList.add("error");
+  }
+}
+
+async function saveAiDraftPolicy(checkbox) {
+  const feedback = document.getElementById("aiDraftFeedback");
+  const enabled = Boolean(checkbox.checked);
+  try {
+    await sendRuntimeMessage({
+      type: "OJAF_SAVE_SETTINGS",
+      payload: { aiDraftPolicy: { enabled, consentedAt: enabled ? new Date().toISOString() : "" } }
+    });
+    feedback.textContent = enabled ? "已开启。只在你点击“AI 起草开放题”时发送经历摘要。" : "已关闭。";
+  } catch (error) {
+    checkbox.checked = !enabled;
+    feedback.textContent = `保存失败：${error.message}`;
+  }
+}
+
+const API_PROVIDER_PRESETS = {
+  deepseek: {
+    label: "DeepSeek",
+    mode: "openai-compatible",
+    baseUrl: "https://api.deepseek.com",
+    endpointPath: "/chat/completions",
+    model: "deepseek-flash",
+    useJsonResponseFormat: true
+  }
+};
+
+function applyApiProviderPreset(key) {
+  const preset = API_PROVIDER_PRESETS[key];
+  if (!preset) return;
+  fields.apiMode.value = preset.mode;
+  fields.baseUrl.value = preset.baseUrl;
+  fields.endpointPath.value = preset.endpointPath;
+  fields.model.value = preset.model;
+  fields.useJsonResponseFormat.checked = preset.useJsonResponseFormat;
+  updateModeBlocks();
+  syncModelPresetFromCurrentModel();
+  setApiDirty(`已填入 ${preset.label} 预设：粘贴你的 API Key 后点“保存 API 设置”，再点“测试连接”。`);
 }
 
 function setAgentBusy(busy, label = "") {

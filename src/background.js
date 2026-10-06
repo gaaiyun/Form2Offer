@@ -1,4 +1,4 @@
-importScripts("safety-policy.js", "message-policy.js", "ai-privacy.js", "job-tracker.js", "answer-library.js", "agent-bridge.js");
+importScripts("safety-policy.js", "message-policy.js", "ai-privacy.js", "job-tracker.js", "answer-library.js", "agent-bridge.js", "platform-knowledge.js", "job-insight.js", "ai-drafting.js");
 
 const { DEFAULT_FILL_POLICY, normalizeFillPolicy } = globalThis.Form2OfferSafetyPolicy;
 const { canHandleRuntimeMessage, isTrustedExtensionPage } = globalThis.Form2OfferMessagePolicy;
@@ -17,6 +17,8 @@ const {
   normalizeAgentConfig,
   buildSessionPayload
 } = globalThis.Form2OfferAgentBridge;
+const jobInsightApi = globalThis.Form2OfferJobInsight;
+const draftingApi = globalThis.Form2OfferAiDrafting;
 
 const MAX_AI_FIELD_COUNT = 300;
 const AI_REQUEST_TIMEOUT_MS = 90000;
@@ -28,14 +30,15 @@ const MAX_JOB_APPLICATIONS = 2000;
 let aiRequestQueue = Promise.resolve();
 let lastAiRequestFinishedAt = 0;
 
+// 默认服务商为 DeepSeek（OpenAI 兼容接口，模型 deepseek-flash 即 V4.1 Flash）；API Key 由用户在设置页填写。
 const DEFAULT_API_CONFIG = {
   mode: "openai-compatible",
-  baseUrl: "https://api.openai.com/v1",
+  baseUrl: "https://api.deepseek.com",
   endpointPath: "/chat/completions",
   apiKey: "",
-  model: "your-model-name",
+  model: "deepseek-flash",
   temperature: 0.1,
-  useJsonResponseFormat: false,
+  useJsonResponseFormat: true,
   extraHeadersJson: "{}",
   customUrl: "",
   customMethod: "POST",
@@ -59,13 +62,21 @@ const STORAGE_KEYS = {
   fillPolicy: "fillPolicy",
   jobApplications: "jobApplications",
   answerLibrary: "answerLibrary",
-  agentConfig: "agentConfig"
+  agentConfig: "agentConfig",
+  aiDraftPolicy: "aiDraftPolicy",
+  candidateProfile: "candidateProfile",
+  resumeVersions: "resumeVersions",
+  agentLink: "agentLink"
 };
 
 const AGENT_SESSION_TABS_KEY = "OJAF_AGENT_SESSION_TABS";
+const AGENT_INITIATED_SESSIONS_KEY = "OJAF_AGENT_INITIATED_SESSIONS";
+const BRIDGE_LINK_ALARM = "form2offer-bridge-link";
+const BRIDGE_KEEPALIVE_MS = 20000;
+const ALL_SITE_ORIGINS = ["http://*/*", "https://*/*"];
 const CONTENT_SCRIPT_FILES = [
   "src/safety-policy.js", "src/date-utils.js", "src/project-utils.js", "src/profile-utils.js",
-  "src/job-tracker.js", "src/answer-library.js", "src/content.js"
+  "src/job-tracker.js", "src/answer-library.js", "src/platform-knowledge.js", "src/fill-rules.js", "src/content.js"
 ];
 
 const PROFILE_PANEL_STATE_KEY = "OJAF_PROFILE_PANEL_STATE";
@@ -119,7 +130,22 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.runtime.onStartup?.addListener(() => {
   void configureTrustedStorageAccess().catch(() => undefined);
+  void ensureBridgeLink().catch(() => undefined);
 });
+
+// 本地 Agent 主动读取浏览器：扩展后台与 Bridge 保持一条本机 WebSocket。
+// 消息往来会让 MV3 后台保持运行；后台被回收时由定时器每 30 秒重连。
+chrome.alarms?.create?.(BRIDGE_LINK_ALARM, { periodInMinutes: 0.5 });
+chrome.alarms?.onAlarm?.addListener((alarm) => {
+  if (alarm?.name === BRIDGE_LINK_ALARM) void ensureBridgeLink().catch(() => undefined);
+});
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area === "local" && (changes[STORAGE_KEYS.agentConfig] || changes[STORAGE_KEYS.agentLink])) {
+    closeBridgeLink();
+    void ensureBridgeLink().catch(() => undefined);
+  }
+});
+void ensureBridgeLink().catch(() => undefined);
 
 void configureTrustedStorageAccess().catch(() => undefined);
 
@@ -204,6 +230,22 @@ async function handleMessage(message, sender = {}) {
       return requestBridge(`/v1/sessions/${encodeURIComponent(message.payload?.sessionId || "")}/cancel`, { method: "POST", body: {} });
     case "OJAF_APPLY_AGENT_PLAN":
       return applyAgentPlan(message.payload || {});
+    case "OJAF_AGENT_STATUS":
+      return requestBridge("/v1/status");
+    case "OJAF_AGENT_LINK_STATUS":
+      return getBridgeLinkStatus();
+    case "OJAF_SAVE_AGENT_LINK":
+      return saveAgentLink(message.payload || {});
+    case "OJAF_AGENT_CHECK_APPLIED":
+      return requestBridge("/v1/applications/check", { method: "POST", body: pickApplicationQuery(message.payload || {}) });
+    case "OJAF_AGENT_STAGED_PROFILE":
+      return requestBridge("/v1/profile-package");
+    case "OJAF_AGENT_CLEAR_STAGED_PROFILE":
+      return requestBridge("/v1/profile-package/clear", { method: "POST", body: {} });
+    case "OJAF_JOB_INSIGHT":
+      return getJobInsight(message.payload || {});
+    case "OJAF_DRAFT_OPEN_ANSWERS":
+      return draftOpenAnswers(message.payload || {});
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -215,7 +257,10 @@ async function getSettings(options = {}) {
     STORAGE_KEYS.apiConfig,
     STORAGE_KEYS.fillPolicy,
     STORAGE_KEYS.answerLibrary,
-    STORAGE_KEYS.agentConfig
+    STORAGE_KEYS.agentConfig,
+    STORAGE_KEYS.aiDraftPolicy,
+    STORAGE_KEYS.candidateProfile,
+    STORAGE_KEYS.resumeVersions
   ]);
   const apiConfig = normalizeApiConfig(values[STORAGE_KEYS.apiConfig]);
   const settings = {
@@ -223,7 +268,10 @@ async function getSettings(options = {}) {
     fillPolicy: normalizeFillPolicy(values[STORAGE_KEYS.fillPolicy]),
     answerLibrary: normalizeAnswerLibrary(values[STORAGE_KEYS.answerLibrary]),
     aiConfigured: isAiApiConfigured(apiConfig),
-    agentConfigured: Boolean(values[STORAGE_KEYS.agentConfig]?.token)
+    agentConfigured: Boolean(values[STORAGE_KEYS.agentConfig]?.token),
+    aiDraftPolicy: draftingApi.normalizeAiDraftPolicy(values[STORAGE_KEYS.aiDraftPolicy]),
+    candidateProfile: normalizeCandidateProfile(values[STORAGE_KEYS.candidateProfile]),
+    resumeVersions: normalizeResumeVersions(values[STORAGE_KEYS.resumeVersions])
   };
 
   if (options.includeApiConfig !== false) {
@@ -280,6 +328,18 @@ async function saveSettings(payload) {
 
   if (payload.fillPolicy) {
     next[STORAGE_KEYS.fillPolicy] = normalizeFillPolicy(payload.fillPolicy);
+  }
+
+  if (payload.aiDraftPolicy) {
+    next[STORAGE_KEYS.aiDraftPolicy] = draftingApi.normalizeAiDraftPolicy(payload.aiDraftPolicy);
+  }
+
+  if (payload.candidateProfile) {
+    next[STORAGE_KEYS.candidateProfile] = normalizeCandidateProfile(payload.candidateProfile);
+  }
+
+  if (payload.resumeVersions) {
+    next[STORAGE_KEYS.resumeVersions] = normalizeResumeVersions(payload.resumeVersions);
   }
 
   await chrome.storage.local.set(next);
@@ -527,7 +587,14 @@ async function applyAgentPlan(payload = {}) {
   const session = await requestBridge(`/v1/sessions/${encodeURIComponent(sessionId)}`);
   if (session.state !== "review_ready" || !session.plan) throw new Error("Agent 方案尚未准备好。");
   const selected = new Set((Array.isArray(payload.fieldIds) ? payload.fieldIds : []).map(String));
-  const items = session.plan.items.filter((item) => selected.has(item.fieldId));
+  const overrides = isPlainObject(payload.overrides) ? payload.overrides : {};
+  // 审阅页只允许改写开放题文本（没有 sourcePath 的条目）；资料路径类条目仍从本机资料取值。
+  const items = session.plan.items
+    .filter((item) => selected.has(item.fieldId))
+    .map((item) => (!item.sourcePath && typeof overrides[item.fieldId] === "string"
+      ? { ...item, value: overrides[item.fieldId].trim().slice(0, 8000) }
+      : item))
+    .filter((item) => item.sourcePath || String(item.value || "").trim());
   const stored = await chrome.storage.session.get(AGENT_SESSION_TABS_KEY);
   const tabId = Number(stored[AGENT_SESSION_TABS_KEY]?.[sessionId]);
   if (!Number.isInteger(tabId)) throw new Error("原招聘网页标签页已丢失，请重新创建任务。");
@@ -555,6 +622,312 @@ function sendMessageToTab(tabId, message) {
       resolve(response.data);
     });
   });
+}
+
+let bridgeSocket = null;
+let bridgeSocketReady = false;
+let bridgeKeepaliveTimer = 0;
+let bridgeReconnectTimer = 0;
+let bridgeReconnectDelay = 1000;
+let bridgeLastError = "";
+
+function normalizeAgentLink(input = {}) {
+  const source = isPlainObject(input) ? input : {};
+  return { enabled: source.enabled === true, includeValues: source.includeValues !== false };
+}
+
+async function canReadAllSites() {
+  try {
+    return Boolean(await chrome.permissions?.contains?.({ origins: ALL_SITE_ORIGINS }));
+  } catch {
+    return false;
+  }
+}
+
+async function getBridgeLinkStatus() {
+  const values = await chrome.storage.local.get([STORAGE_KEYS.agentLink, STORAGE_KEYS.agentConfig]);
+  const link = normalizeAgentLink(values[STORAGE_KEYS.agentLink]);
+  return {
+    ...link,
+    paired: Boolean(values[STORAGE_KEYS.agentConfig]?.token),
+    connected: Boolean(bridgeSocket && bridgeSocketReady),
+    canReadAllSites: await canReadAllSites(),
+    lastError: bridgeLastError
+  };
+}
+
+async function saveAgentLink(payload = {}) {
+  const link = normalizeAgentLink(payload);
+  await chrome.storage.local.set({ [STORAGE_KEYS.agentLink]: link });
+  closeBridgeLink();
+  await ensureBridgeLink().catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  return getBridgeLinkStatus();
+}
+
+function closeBridgeLink() {
+  clearInterval(bridgeKeepaliveTimer);
+  clearTimeout(bridgeReconnectTimer);
+  bridgeKeepaliveTimer = 0;
+  bridgeReconnectTimer = 0;
+  const socket = bridgeSocket;
+  bridgeSocket = null;
+  bridgeSocketReady = false;
+  if (socket && socket.readyState <= 1) {
+    try {
+      socket.close(1000, "link reset");
+    } catch {
+      // Already closing.
+    }
+  }
+}
+
+function scheduleBridgeReconnect() {
+  clearTimeout(bridgeReconnectTimer);
+  bridgeReconnectTimer = setTimeout(() => void ensureBridgeLink().catch(() => undefined), bridgeReconnectDelay);
+  bridgeReconnectDelay = Math.min(30000, bridgeReconnectDelay * 2);
+}
+
+async function ensureBridgeLink() {
+  if (typeof WebSocket === "undefined") return { connected: false };
+  const values = await chrome.storage.local.get([STORAGE_KEYS.agentConfig, STORAGE_KEYS.agentLink]);
+  const config = normalizeAgentConfig(values[STORAGE_KEYS.agentConfig] || DEFAULT_AGENT_CONFIG);
+  const link = normalizeAgentLink(values[STORAGE_KEYS.agentLink]);
+  if (!config.token || !link.enabled) {
+    closeBridgeLink();
+    return { connected: false };
+  }
+  if (bridgeSocket && bridgeSocket.readyState <= 1) {
+    return { connected: bridgeSocketReady };
+  }
+  let socket;
+  try {
+    socket = new WebSocket(`${config.bridgeUrl.replace(/^http/i, "ws")}/v1/ws`);
+  } catch (error) {
+    bridgeLastError = String(error?.message || error);
+    scheduleBridgeReconnect();
+    return { connected: false };
+  }
+  bridgeSocket = socket;
+  bridgeSocketReady = false;
+  socket.addEventListener("open", async () => {
+    socket.send(JSON.stringify({ type: "auth", token: config.token, info: await getBridgeLinkInfo(link) }));
+  });
+  socket.addEventListener("message", (event) => {
+    void handleBridgeMessage(socket, event.data);
+  });
+  socket.addEventListener("close", (event) => {
+    if (bridgeSocket !== socket) return;
+    bridgeSocket = null;
+    bridgeSocketReady = false;
+    clearInterval(bridgeKeepaliveTimer);
+    if (event?.code === 4003) bridgeLastError = "Bridge 拒绝了配对令牌，请在设置页重新配对。";
+    scheduleBridgeReconnect();
+  });
+  socket.addEventListener("error", () => {
+    bridgeLastError = "无法连接 Local Bridge（未启动或端口被占用）。";
+  });
+  return { connected: false };
+}
+
+async function getBridgeLinkInfo(link) {
+  return {
+    extensionVersion: chrome.runtime.getManifest?.().version || "",
+    browser: String(globalThis.navigator?.userAgent || "").replace(/^.*?(Edg|Chrome)\//, "$1/").slice(0, 80),
+    linkEnabled: link.enabled,
+    includeValues: link.includeValues,
+    canReadAllSites: await canReadAllSites()
+  };
+}
+
+async function handleBridgeMessage(socket, raw) {
+  let message;
+  try {
+    message = JSON.parse(String(raw || ""));
+  } catch {
+    return;
+  }
+  if (message.type === "ready") {
+    bridgeSocketReady = true;
+    bridgeReconnectDelay = 1000;
+    bridgeLastError = "";
+    clearInterval(bridgeKeepaliveTimer);
+    bridgeKeepaliveTimer = setInterval(() => {
+      if (socket.readyState === 1) socket.send(JSON.stringify({ type: "keepalive" }));
+    }, BRIDGE_KEEPALIVE_MS);
+    return;
+  }
+  if (message.type === "ping") {
+    if (socket.readyState === 1) socket.send(JSON.stringify({ type: "pong" }));
+    return;
+  }
+  if (message.type === "plan_ready") {
+    await openReviewForAgentSession(message.sessionId).catch(() => undefined);
+    return;
+  }
+  if (!message.id || !["list_tabs", "read_form"].includes(message.type)) return;
+  try {
+    const data = message.type === "list_tabs"
+      ? await listTabsForAgent(message.args || {})
+      : await readFormForAgent(message.args || {});
+    socket.send(JSON.stringify({ replyTo: message.id, ok: true, data }));
+  } catch (error) {
+    socket.send(JSON.stringify({ replyTo: message.id, ok: false, error: String(error?.message || error).slice(0, 500) }));
+  }
+}
+
+function describeTab(tab) {
+  let parsed = null;
+  try {
+    parsed = new URL(tab.url || "");
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || !/^https?:$/.test(parsed.protocol)) return null;
+  const detected = globalThis.Form2OfferPlatformKnowledge?.detectPlatform?.(parsed.href) || null;
+  return {
+    tabId: tab.id,
+    windowId: tab.windowId,
+    active: Boolean(tab.active),
+    title: String(tab.title || "").slice(0, 120),
+    origin: parsed.origin,
+    path: parsed.pathname.slice(0, 160),
+    platform: detected ? detected.name : ""
+  };
+}
+
+async function listTabsForAgent(args = {}) {
+  const needle = String(args.urlContains || "").trim().toLowerCase();
+  const tabs = (await chrome.tabs.query({}))
+    .map(describeTab)
+    .filter(Boolean)
+    .filter((tab) => !needle || `${tab.origin}${tab.path} ${tab.title}`.toLowerCase().includes(needle));
+  if (tabs.length === 0 && !(await canReadAllSites())) {
+    throw new Error("扩展没有读取网页地址的权限：请在 Form2Offer 设置页开启“允许本地 Agent 读取浏览器表单”。");
+  }
+  return { tabs: tabs.slice(0, 60) };
+}
+
+async function resolveAgentTab(args = {}) {
+  if (Number.isInteger(args.tabId) && args.tabId > 0) {
+    return chrome.tabs.get(args.tabId);
+  }
+  const needle = String(args.urlContains || "").trim().toLowerCase();
+  const candidates = (await chrome.tabs.query(needle ? {} : { active: true, lastFocusedWindow: true }))
+    .filter((tab) => /^https?:/i.test(tab.url || ""))
+    .filter((tab) => !needle || String(tab.url || "").toLowerCase().includes(needle));
+  if (candidates.length > 0) return candidates.find((tab) => tab.active) || candidates[0];
+  const anyActive = (await chrome.tabs.query({ active: true })).filter((tab) => /^https?:/i.test(tab.url || ""));
+  return needle ? null : anyActive[0] || null;
+}
+
+async function readFormForAgent(args = {}) {
+  const values = await chrome.storage.local.get([STORAGE_KEYS.agentLink]);
+  const link = normalizeAgentLink(values[STORAGE_KEYS.agentLink]);
+  if (!link.enabled) throw new Error("用户没有开启“允许本地 Agent 读取浏览器表单”。");
+  const tab = await resolveAgentTab(args);
+  if (!tab?.id || !/^https?:/i.test(tab.url || "")) {
+    throw new Error("没有找到可读取的招聘网页标签页；可先用 form2offer_list_tabs 选择 tabId。");
+  }
+  const origin = new URL(tab.url).origin;
+  const allowed = await chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false);
+  if (!allowed) {
+    throw new Error(`Form2Offer 没有 ${origin} 的访问权限：请在扩展设置页开启“允许本地 Agent 读取浏览器表单”。`);
+  }
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_SCRIPT_FILES });
+  const snapshot = await sendMessageToTab(tab.id, { type: "OJAF_GET_AGENT_SNAPSHOT" });
+  const includeValues = link.includeValues && args.includeValues !== false;
+  const request = buildSessionPayload({ ...snapshot, initiator: "agent" }, "agent-pull", { includeValues });
+  if (request.scan.fields.length === 0) throw new Error("这个标签页没有可读取的表单字段。");
+  const session = await requestBridge("/v1/sessions", { method: "POST", body: request, timeoutMs: 30000 });
+  const stored = await chrome.storage.session.get([AGENT_SESSION_TABS_KEY, AGENT_INITIATED_SESSIONS_KEY]);
+  const tabs = isPlainObject(stored[AGENT_SESSION_TABS_KEY]) ? stored[AGENT_SESSION_TABS_KEY] : {};
+  const initiated = isPlainObject(stored[AGENT_INITIATED_SESSIONS_KEY]) ? stored[AGENT_INITIATED_SESSIONS_KEY] : {};
+  tabs[session.id] = tab.id;
+  initiated[session.id] = { reviewOpened: false };
+  await chrome.storage.session.set({ [AGENT_SESSION_TABS_KEY]: tabs, [AGENT_INITIATED_SESSIONS_KEY]: initiated });
+  return { sessionId: session.id, tab: describeTab(tab) };
+}
+
+async function openReviewForAgentSession(sessionId) {
+  const id = String(sessionId || "");
+  const stored = await chrome.storage.session.get(AGENT_INITIATED_SESSIONS_KEY);
+  const initiated = isPlainObject(stored[AGENT_INITIATED_SESSIONS_KEY]) ? stored[AGENT_INITIATED_SESSIONS_KEY] : {};
+  if (!initiated[id] || initiated[id].reviewOpened) return;
+  initiated[id].reviewOpened = true;
+  await chrome.storage.session.set({ [AGENT_INITIATED_SESSIONS_KEY]: initiated });
+  await chrome.tabs.create({ url: chrome.runtime.getURL(`src/agent-review.html?session=${encodeURIComponent(id)}`), active: true });
+}
+
+function pickApplicationQuery(payload = {}) {
+  return {
+    company: String(payload.company || "").slice(0, 120),
+    role: String(payload.role || "").slice(0, 160),
+    hostname: String(payload.hostname || "").slice(0, 160)
+  };
+}
+
+// 本人的硬门槛画像（院校层次、学历、英语分、届别、专业关键词），只在本机用来读岗位要求。
+function normalizeCandidateProfile(input = {}) {
+  const source = isPlainObject(input) ? input : {};
+  const candidate = {};
+  if (["985", "211", "double-first-class", "other"].includes(source.schoolTier)) candidate.schoolTier = source.schoolTier;
+  if (["bachelor", "master", "phd"].includes(source.degree)) candidate.degree = source.degree;
+  if (Number(source.englishScore) > 0) candidate.englishScore = Math.round(Number(source.englishScore));
+  if (Number(source.classYear) >= 2000) candidate.classYear = Math.round(Number(source.classYear));
+  const majors = (Array.isArray(source.majorKeywords) ? source.majorKeywords : String(source.majorKeywords || "").split(/[,，、]/))
+    .map((item) => String(item || "").trim().slice(0, 40))
+    .filter(Boolean)
+    .slice(0, 12);
+  if (majors.length) candidate.majorKeywords = majors;
+  return candidate;
+}
+
+function normalizeResumeVersions(input) {
+  const list = typeof input === "string" ? jobInsightApi.parseResumeVersionLines(input) : Array.isArray(input) ? input : [];
+  return list
+    .filter((item) => isPlainObject(item) && item.id && item.label)
+    .slice(0, 60)
+    .map((item) => ({
+      id: String(item.id).trim().slice(0, 40),
+      label: String(item.label).trim().slice(0, 80),
+      families: (Array.isArray(item.families) ? item.families : []).map((value) => String(value).trim()).filter(Boolean).slice(0, 8),
+      keywords: (Array.isArray(item.keywords) ? item.keywords : []).map((value) => String(value).trim()).filter(Boolean).slice(0, 30)
+    }));
+}
+
+async function getJobInsight(payload = {}) {
+  const values = await chrome.storage.local.get([STORAGE_KEYS.candidateProfile, STORAGE_KEYS.resumeVersions]);
+  const title = String(payload.title || "").slice(0, 160);
+  const text = [title, String(payload.description || "").slice(0, 12000)].filter(Boolean).join("\n");
+  const analysis = jobInsightApi.analyzeJobText(text, { title });
+  return {
+    analysis,
+    assessment: jobInsightApi.assessRequirements(analysis, normalizeCandidateProfile(values[STORAGE_KEYS.candidateProfile])),
+    recommendedResume: jobInsightApi.recommendResumeVersion(analysis, normalizeResumeVersions(values[STORAGE_KEYS.resumeVersions]), text)
+  };
+}
+
+// AI 起草开放题：需要用户在设置页显式开启；只发送经历摘要（不含身份、联系方式、家庭和声明）。
+async function draftOpenAnswers(payload = {}) {
+  const values = await chrome.storage.local.get([STORAGE_KEYS.apiConfig, STORAGE_KEYS.aiDraftPolicy, STORAGE_KEYS.profileV2]);
+  const policy = draftingApi.normalizeAiDraftPolicy(values[STORAGE_KEYS.aiDraftPolicy]);
+  if (!policy.enabled) {
+    throw new Error("AI 起草开放题未开启：请到设置页“AI 起草开放题”确认后开启。开启后，经历摘要会发送给你配置的 AI 服务。");
+  }
+  const apiConfig = normalizeApiConfig(values[STORAGE_KEYS.apiConfig]);
+  if (!isAiApiConfigured(apiConfig)) {
+    throw new Error("尚未配置 AI 服务，请先在设置页填写接口并测试连接。");
+  }
+  const questions = draftingApi.sanitizeDraftQuestions(payload.questions);
+  if (questions.length === 0) {
+    return { drafts: [] };
+  }
+  const narrative = draftingApi.buildDraftNarrative(normalizeProfileV2(values[STORAGE_KEYS.profileV2] || DEFAULT_PROFILE_V2));
+  const messages = draftingApi.buildDraftMessages({ questions, job: payload.job || {}, narrative });
+  const draftConfig = { ...apiConfig, temperature: Math.max(Number(apiConfig.temperature) || 0, 0.6) };
+  const rawContent = await callAi(draftConfig, messages, { questions, job: payload.job || {} });
+  return { drafts: draftingApi.normalizeDraftResponse(parseJsonFromText(rawContent), questions) };
 }
 
 async function getAnswerLibrary() {
@@ -798,7 +1171,10 @@ function isAiApiConfigured(apiConfig = {}) {
     return false;
   }
 
-  if (/^https:\/\/api\.openai\.com(?:\/|$)/i.test(baseUrl) && !apiKey) {
+  // 云端服务都需要 API Key；本机模型（localhost）或已在额外请求头里带鉴权的除外。
+  const isLocalModel = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::|\/|$)/i.test(baseUrl);
+  const hasAuthHeader = /authorization|api-key|x-api-key/i.test(String(apiConfig.extraHeadersJson || ""));
+  if (!apiKey && !isLocalModel && !hasAuthHeader) {
     return false;
   }
 

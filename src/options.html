@@ -101,12 +101,70 @@
         </div>
         <p id="agentFeedback" class="api-feedback" aria-live="polite">Local Bridge 未检测。</p>
         <pre id="agentSources" class="api-preview" hidden></pre>
+        <h3>让 Agent 主动读取浏览器表单</h3>
+        <p class="hint">开启后，Claude Code、Codex 等 MCP Agent 可以用 <code>form2offer_read_form</code> 直接读取你当前打开的网申页（字段、选项、已填内容；证件号、密码、验证码会打码），并提交填写方案。方案仍要你在弹出的审阅页确认后才写入网页。需要授予扩展访问网站的权限。</p>
+        <label class="policy-option">
+          <input id="agentLinkEnabled" type="checkbox" />
+          <span><strong>允许本地 Agent 读取浏览器表单</strong><small>扩展与本机 Bridge 保持连接；关闭后立即断开。</small></span>
+        </label>
+        <label class="policy-option">
+          <input id="agentLinkIncludeValues" type="checkbox" checked />
+          <span><strong>同时提供网页当前已填内容</strong><small>便于 Agent 核对预填错误；关闭后只提供字段结构。</small></span>
+        </label>
+        <p id="agentLinkFeedback" class="api-feedback" aria-live="polite"></p>
+        <h3>Agent 准备的资料底稿</h3>
+        <p class="hint">Claude Code、Codex 等 Agent 可以用 <code>form2offer_stage_profile</code> 把整理好的资料暂存在 Bridge。这里先看差异，再决定是否导入；导入前会自动下载当前资料备份。</p>
+        <div class="actions">
+          <button id="checkStagedProfile" class="secondary" type="button">检查暂存底稿</button>
+          <button id="importStagedProfile" type="button" hidden>导入这份底稿</button>
+          <button id="discardStagedProfile" class="ghost" type="button" hidden>丢弃暂存</button>
+        </div>
+        <pre id="stagedProfilePreview" class="api-preview" hidden></pre>
+      </section>
+
+      <section class="card insight-settings" aria-labelledby="insightSettingsTitle">
+        <p class="eyebrow">岗位速读（本机规则）</p>
+        <h2 id="insightSettingsTitle">我的门槛与简历版本</h2>
+        <p class="hint">只在本机用来读岗位要求、判断硬门槛和推荐简历版本，不会填进网页，也不会发给 AI。</p>
+        <div class="grid settings-grid">
+          <label>院校层次<select id="candidateSchoolTier"><option value="">未设置</option><option value="985">985</option><option value="211">211</option><option value="double-first-class">双一流（非 211）</option><option value="other">其他院校</option></select></label>
+          <label>最高学历<select id="candidateDegree"><option value="">未设置</option><option value="bachelor">本科</option><option value="master">硕士</option><option value="phd">博士</option></select></label>
+          <label>英语分数（CET-6）<input id="candidateEnglishScore" type="number" min="0" max="710" /></label>
+          <label>毕业届别<input id="candidateClassYear" type="number" min="2000" max="2100" placeholder="例如 2027" /></label>
+          <label>专业关键词<input id="candidateMajors" type="text" placeholder="例如：金融, 经济, 金融工程" /></label>
+        </div>
+        <label>简历版本映射（每行：编号 | 名称 | 岗位族 | 关键词）
+          <textarea id="resumeVersions" rows="8" placeholder="13 | 渠道销售与商务客户发展 | sales,bank-frontline | 渠道,客户,销售"></textarea>
+        </label>
+        <p class="hint">岗位族：sales 销售、bank-frontline 银行网点、operations 运营、data 数据分析、product 产品、ai-application AI 应用、marketing 市场品牌、supply-chain 供应链、finance-middle 金融中后台、accounting 财务、hr-admin 人力行政、management-trainee 管培、consulting-research 咨询研究、tech-rd 技术研发、design 设计、customer-service 客服。</p>
+        <div class="actions"><button id="saveInsightSettings" type="button">保存门槛与简历版本</button></div>
+        <p id="insightFeedback" class="api-feedback" aria-live="polite"></p>
+      </section>
+
+      <section class="card draft-settings" aria-labelledby="draftSettingsTitle">
+        <p class="eyebrow">AI 起草开放题（可选）</p>
+        <h2 id="draftSettingsTitle">允许把经历摘要发给 AI 起草开放题</h2>
+        <p class="hint">开启后，在资料面板点“AI 起草开放题”时，会把教育、实习、项目、奖项、技能、自我评价和已有问答素材（不含姓名、联系方式、证件、地址、家庭和声明）连同题目、岗位描述一起发给下方配置的 AI 服务。草稿只显示在面板里，你点“填入”才会写进网页。</p>
+        <label class="policy-option">
+          <input id="aiDraftEnabled" type="checkbox" />
+          <span><strong>我了解上述数据范围，开启 AI 起草</strong><small>关闭后不会发送任何经历内容；字段映射仍只发送字段结构。</small></span>
+        </label>
+        <p id="aiDraftFeedback" class="api-feedback" aria-live="polite"></p>
       </section>
 
       <section class="grid settings-grid">
 
         <form id="settingsForm" class="card">
           <h2>API 设置（可选，用于 AI 页面分析）</h2>
+
+          <label>
+            服务商预设
+            <select id="apiProviderPreset">
+              <option value="">手动填写 / 保持当前</option>
+              <option value="deepseek">DeepSeek · deepseek-flash（V4.1 Flash，默认）</option>
+            </select>
+            <span class="field-help">选择后自动填写接口地址和模型，只需再粘贴自己的 API Key。</span>
+          </label>
 
           <label>
             API 模式
@@ -222,6 +280,7 @@
     <script src="./safety-policy.js"></script>
     <script src="./agent-bridge.js"></script>
     <script src="./profile-utils.js"></script>
+    <script src="./job-insight.js"></script>
     <script src="./options.js"></script>
   </body>
 </html>

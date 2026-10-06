@@ -18,9 +18,22 @@
         <p id="summary" class="summary"></p>
         <div id="warnings" class="warnings"></div>
       </section>
+      <section id="contextCard" class="card context" hidden>
+        <h2>这家公司与这个平台</h2>
+        <p id="appliedLine" class="context-line" hidden></p>
+        <p id="insightLine" class="context-line" hidden></p>
+        <ul id="insightItems" class="context-list"></ul>
+        <p id="resumeLine" class="context-line" hidden></p>
+        <details id="tipsBox" hidden>
+          <summary id="tipsTitle">平台注意事项</summary>
+          <ul id="tipsList" class="context-list"></ul>
+        </details>
+      </section>
       <section id="planCard" class="card" hidden>
         <div class="plan-head"><h2>建议填写项</h2><label><input id="selectAll" type="checkbox" checked /> 全选普通字段</label></div>
+        <p class="meta">开放题答案可以直接在框里修改，确认时按修改后的内容填写。</p>
         <div id="items" class="items"></div>
+        <label class="remember"><input id="rememberAnswers" type="checkbox" checked /> 把确认填写的开放题答案记进本地问答库（以后同题可直接复用）</label>
         <button id="applyBtn" type="button">确认并填写所选字段</button>
         <p id="applyFeedback" class="feedback" aria-live="polite"></p>
       </section>

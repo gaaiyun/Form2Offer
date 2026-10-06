@@ -10,6 +10,9 @@ const aiPrivacy = require("../src/ai-privacy.js");
 const jobTracker = require("../src/job-tracker.js");
 const answerLibrary = require("../src/answer-library.js");
 const agentBridge = require("../src/agent-bridge.js");
+const platformKnowledge = require("../src/platform-knowledge.js");
+const jobInsight = require("../src/job-insight.js");
+const aiDrafting = require("../src/ai-drafting.js");
 
 const backgroundSource = fs.readFileSync(path.join(__dirname, "..", "src", "background.js"), "utf8");
 
@@ -100,7 +103,11 @@ function createBackgroundHarness(options = {}) {
     context.Form2OfferJobTracker = jobTracker;
     context.Form2OfferAnswerLibrary = answerLibrary;
     context.Form2OfferAgentBridge = agentBridge;
+    context.Form2OfferPlatformKnowledge = platformKnowledge;
+    context.Form2OfferJobInsight = jobInsight;
+    context.Form2OfferAiDrafting = aiDrafting;
   };
+  Object.assign(localData, options.localData || {});
 
   vm.runInNewContext(backgroundSource, context, { filename: "src/background.js" });
   assert.equal(typeof messageListener, "function");
@@ -547,4 +554,68 @@ test("clear resets owned settings without deleting unrelated local data", async 
   assert.equal(harness.localData.unrelatedSetting, "keep-me");
   assert.equal(harness.localData.apiConfig.apiKey, "");
   assert.equal(Object.hasOwn(harness.sessionData, "OJAF_PROFILE_PANEL_STATE"), false);
+});
+
+test("AI drafting stays off until the user enables it in settings", async () => {
+  const harness = createBackgroundHarness();
+  const response = await harness.send({
+    type: "OJAF_DRAFT_OPEN_ANSWERS",
+    payload: { questions: [{ id: "q1", question: "为什么申请该岗位？" }], job: { company: "示例" } }
+  }, contentSender);
+  assert.equal(response.ok, false);
+  assert.match(response.error, /未开启/);
+});
+
+test("AI drafting sends an experience summary without contact details once enabled", async () => {
+  let requestBody = null;
+  const harness = createBackgroundHarness({
+    localData: {
+      aiDraftPolicy: { enabled: true, consentedAt: "2026-10-07T00:00:00Z" },
+      profileV2: {
+        schemaVersion: 2,
+        updatedAt: "",
+        sections: {
+          basic: { key: "basic", title: "基本信息", kind: "simple", values: { 电话: "13800138000", 姓名: "测试" } },
+          internship: { key: "internship", title: "实习经历", kind: "repeat", items: [{ title: "实习 1", values: { 单位名称: "示例公司", 实习内容: "做销量预测" } }] }
+        },
+        customSections: []
+      }
+    },
+    fetch: async (url, init) => {
+      requestBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ drafts: [{ id: "q1", answer: "我在示例公司做销量预测。" }] }) } }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+  const response = await harness.send({
+    type: "OJAF_DRAFT_OPEN_ANSWERS",
+    payload: { questions: [{ id: "q1", question: "介绍一段实习经历" }], job: { company: "示例消费品", title: "管培生" } }
+  }, contentSender);
+  assert.equal(response.ok, true, response.error);
+  assert.equal(response.data.drafts[0].answer, "我在示例公司做销量预测。");
+  const prompt = requestBody.messages.map((message) => message.content).join("\n");
+  assert.match(prompt, /示例公司/);
+  assert.doesNotMatch(prompt, /13800138000|测试/);
+});
+
+test("job insight uses the stored candidate thresholds and resume versions", async () => {
+  const harness = createBackgroundHarness({
+    localData: {
+      candidateProfile: { schoolTier: "other", degree: "master", classYear: 2027 },
+      resumeVersions: [{ id: "13", label: "渠道销售", families: ["sales"], keywords: [] }]
+    }
+  });
+  const response = await harness.send({
+    type: "OJAF_JOB_INSIGHT",
+    payload: { title: "销售管培生", description: "负责渠道开拓。要求985院校。" }
+  }, trustedSender);
+  assert.equal(response.ok, true, response.error);
+  assert.equal(response.data.assessment.verdict, "block");
+  assert.equal(response.data.recommendedResume.id, "13");
+});
+
+test("application history checks are only available to extension pages", async () => {
+  const harness = createBackgroundHarness();
+  const response = await harness.send({ type: "OJAF_AGENT_CHECK_APPLIED", payload: { company: "示例" } }, contentSender);
+  assert.equal(response.ok, false);
+  assert.match(response.error, /trusted/);
 });

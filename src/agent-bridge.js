@@ -54,8 +54,21 @@
     }
   }
 
-  function sanitizeField(field = {}) {
+  const SECRET_FIELD_PATTERN = /身份证|证件号|护照|密码|口令|验证码|短信码|银行卡|卡号|社保|公积金账号/i;
+
+  // 只有用户开启“允许本地 Agent 读取浏览器表单”并由 Agent 主动读取时才带当前值；密码、证件号等一律打码。
+  function sanitizeCurrentValue(field = {}) {
+    const value = String(field.currentValue == null ? "" : field.currentValue).trim();
+    if (!value) return "";
+    const context = [field.label, field.inferredLabel, field.placeholder, field.name, field.id].filter(Boolean).join(" ");
+    if (SECRET_FIELD_PATTERN.test(context) || String(field.type || "").toLowerCase() === "password") return "【已打码】";
+    return text(value, 1000);
+  }
+
+  function sanitizeField(field = {}, options = {}) {
+    const currentValue = options.includeValues ? sanitizeCurrentValue(field) : "";
     return {
+      ...(currentValue ? { currentValue } : {}),
       fieldId: text(field.fieldId, 160),
       type: text(field.type, 40).toLowerCase(),
       tagName: text(field.tagName, 40).toLowerCase(),
@@ -68,6 +81,7 @@
       readOnly: Boolean(field.readOnly),
       hasCurrentValue: Boolean(field.hasCurrentValue),
       canFill: Boolean(field.canFill),
+      maxLength: Math.max(0, Math.min(100000, Number(field.maxLength) || 0)),
       section: text(field.section || field.inferredCategory, 180),
       nearbyText: text(field.nearbyText, 260),
       groupText: text(field.groupText, 220),
@@ -78,15 +92,17 @@
     };
   }
 
-  function buildSessionPayload(input = {}, mode = "codex") {
+  function buildSessionPayload(input = {}, mode = "codex", options = {}) {
     const scan = input.scan && typeof input.scan === "object" ? input.scan : {};
+    const includeValues = options.includeValues === true && input.initiator === "agent";
     return {
       mode: mode === "agent-pull" ? "agent-pull" : "codex",
+      initiator: input.initiator === "agent" ? "agent" : "user",
       scan: {
         origin: pageOrigin(scan.origin || scan.url),
         hostname: text(scan.hostname, 160),
         title: text(scan.title, 240),
-        fields: (Array.isArray(scan.fields) ? scan.fields : []).slice(0, 300).map(sanitizeField).filter((field) => field.fieldId)
+        fields: (Array.isArray(scan.fields) ? scan.fields : []).slice(0, 300).map((field) => sanitizeField(field, { includeValues })).filter((field) => field.fieldId)
       },
       profileCatalog: {
         fields: (Array.isArray(input.profileCatalog?.fields) ? input.profileCatalog.fields : []).slice(0, 300).map((field) => ({
@@ -95,7 +111,13 @@
           aliases: (Array.isArray(field?.aliases) ? field.aliases : []).slice(0, 12).map((alias) => text(alias, 120)).filter(Boolean)
         })).filter((field) => field.path && field.label && !RESTRICTED_CATALOG_PATTERN.test(field.label))
       },
-      jobContext: text(input.jobContext, 2000)
+      // 岗位上下文让 Agent 能按公司和 JD 写开放题；Bridge 端会再去掉联系方式和页面指令。
+      job: {
+        company: text(input.job?.company, 120),
+        title: text(input.job?.title, 160),
+        description: text(input.job?.description || input.jobContext, 4000)
+      },
+      signals: (Array.isArray(input.signals) ? input.signals : []).map((signal) => text(signal, 120)).filter(Boolean).slice(0, 20)
     };
   }
 

@@ -883,3 +883,15 @@ pre.error {
   }
 
 }
+
+.agent-settings h3 {
+  margin: 20px 0 4px;
+  font-size: 15px;
+}
+
+.insight-settings textarea {
+  width: 100%;
+  min-height: 150px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}

@@ -17,7 +17,8 @@ test('native select skips empty placeholders and prioritizes exact matches', () 
     normalizeText: x => String(x).trim(),
     normalizeChoiceLabel: x => String(x).trim(),
     choiceTextMatches: (a,b) => !!a && !!b && (a.includes(b) || b.includes(a)),
-    setNativeValue: (el,v) => { el.value=v; }
+    setNativeValue: (el,v) => { el.value=v; },
+    resolveRankChoiceTarget: (t) => t
   };
   vm.createContext(ctx);
   vm.runInContext(functionSource('../src/content.js','setSelectValue','setContentEditableValue'),ctx);
@@ -31,6 +32,28 @@ test('native select skips empty placeholders and prioritizes exact matches', () 
   assert.equal(el.value,'master','unmatched choices must not clear existing values');
   assert.equal(ctx.setSelectValue(el,'否'),false);
   assert.equal(ctx.setSelectValue(el,''),false);
+});
+
+test('native select maps a true rank to the conservative page bucket', () => {
+  const ctx = {
+    globalThis: { Form2OfferFillRules: require('../src/fill-rules.js') },
+    normalizeText: x => String(x).trim(),
+    normalizeChoiceLabel: x => String(x).trim(),
+    choiceTextMatches: (a,b) => !!a && !!b && a === b,
+    setNativeValue: (el,v) => { el.value=v; }
+  };
+  vm.createContext(ctx);
+  vm.runInContext(functionSource('../src/content.js','resolveRankChoiceTarget','choiceTextMatches'),ctx);
+  vm.runInContext(functionSource('../src/content.js','setSelectValue','setContentEditableValue'),ctx);
+  const el={value:'',options:[
+    {value:'',textContent:'请选择'}, {value:'1',textContent:'前5%'},
+    {value:'2',textContent:'前20%'}, {value:'3',textContent:'前50%'}, {value:'4',textContent:'其他'}
+  ]};
+  assert.equal(ctx.setSelectValue(el,'前10%','专业排名'),true);
+  assert.equal(el.value,'2');
+  assert.equal(ctx.setSelectValue(el,'前30%','成绩排名'),true);
+  assert.equal(el.value,'3');
+  assert.equal(ctx.resolveRankChoiceTarget('10%', ['前5%','前20%'], '持股比例'), '10%');
 });
 
 test('profile editor retains partial dates, ongoing periods and custom select values', () => {

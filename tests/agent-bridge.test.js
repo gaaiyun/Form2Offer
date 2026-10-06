@@ -32,6 +32,18 @@ test("builds a value-free Agent snapshot and removes private URL components", ()
   assert.match(payload.scan.fields[0].label, /页面指令已移除/);
 });
 
+test("carries job context, platform signals and field limits for the agent", () => {
+  const payload = buildSessionPayload({
+    scan: { fields: [{ fieldId: "f1", type: "textarea", label: "为什么申请", maxLength: 300, canFill: true }] },
+    job: { company: "示例公司", title: "销售管培生", description: "负责渠道开拓" },
+    signals: ["[class*='sd-Select-container']"]
+  });
+  assert.equal(payload.job.company, "示例公司");
+  assert.equal(payload.job.description, "负责渠道开拓");
+  assert.equal(payload.scan.fields[0].maxLength, 300);
+  assert.deepEqual(payload.signals, ["[class*='sd-Select-container']"]);
+});
+
 test("normalizes mode, timeout, and permission scope", () => {
   const config = normalizeAgentConfig({ bridgeUrl: "http://127.0.0.1:43127", mode: "agent-pull", timeoutMs: 1 });
   assert.equal(config.mode, "agent-pull");

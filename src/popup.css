@@ -311,3 +311,67 @@ button.ghost.compact {
 .error {
   color: var(--danger);
 }
+
+.update-banner {
+  border-color: #e8c78f;
+  background: #fff8ec;
+}
+
+.insight-platform {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.insight-items {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.insight-items li.block {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.insight-items li.risk {
+  color: var(--accent);
+}
+
+.insight-items li.ok {
+  color: var(--primary);
+}
+
+.insight-items li.unknown,
+.insight-items li.info {
+  color: var(--muted);
+}
+
+.insight-line {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.insight-line.warn {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.insight-tips {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.insight-tips summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.insight-tips ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

@@ -20,6 +20,26 @@
         <button id="openOptions" class="ghost" type="button">设置</button>
       </header>
 
+      <section id="updateBanner" class="panel update-banner" hidden>
+        <p id="updateText" class="hint"></p>
+        <button id="reloadExtension" type="button">重新加载扩展</button>
+      </section>
+
+      <section id="insightPanel" class="panel insight-panel">
+        <div class="panel-heading-row">
+          <h2>岗位速读</h2>
+          <span id="insightPlatform" class="insight-platform"></span>
+        </div>
+        <p id="insightSummary" class="hint" aria-live="polite">正在读取当前页面...</p>
+        <ul id="insightItems" class="insight-items"></ul>
+        <p id="insightResume" class="insight-line" hidden></p>
+        <p id="insightApplied" class="insight-line" hidden></p>
+        <details id="insightTipsBox" class="insight-tips" hidden>
+          <summary>本站填写注意事项</summary>
+          <ul id="insightTips"></ul>
+        </details>
+      </section>
+
       <section class="panel">
         <button id="startAutofillBtn" type="button">开始填写</button>
         <button id="startAgentBtn" class="secondary" type="button">交给本地 Agent</button>
@@ -84,7 +104,7 @@
 
       <section class="panel">
         <h2>当前边界</h2>
-        <p class="hint">内置 AI 只识别字段映射。可选的本地 Agent 只读取你在 Bridge 中批准并脱敏的资料；方案确认前不改网页，插件永不提交申请。</p>
+        <p class="hint">内置 AI 默认只识别字段映射；“AI 起草开放题”需在设置页单独开启，草稿要你点“填入”才写入。本地 Agent 只读取你在 Bridge 中批准并脱敏的资料；方案确认前不改网页，插件永不提交申请。</p>
       </section>
     </main>
 

@@ -83,12 +83,13 @@
     },
     {
       id: "zhiye",
-      name: "智易/智业 ATS",
+      name: "北森招聘门户（zhiye）",
       urlPattern: /(?:^|\.)zhiye\.com$/i,
       confidence: 0.94,
-      indicators: [".ant-form-item", ".ant-select", "[class*='form-item']", "[class*='FormItem']"],
-      containerSelector: ".ant-form-item,.form-item,[class*='formItem'],[class*='FormItem'],[class*='field'],[class*='Field']",
-      labelSelector: ".ant-form-item-label,label,[class*='label'],[class*='Label'],[class*='formLabel']",
+      // 新版门户是 Phoenix 组件（.form-item / .form-item__text），旧租户仍有 antd 风格。
+      indicators: [".form-item--phoenix", ".phoenix-select", ".ant-form-item", ".ant-select", "[class*='form-item']", "[class*='FormItem']"],
+      containerSelector: ".form-item--phoenix,.form-item,.ant-form-item,[class*='formItem'],[class*='FormItem'],[class*='field'],[class*='Field']",
+      labelSelector: ".form-item__text,.form-item__title,.ant-form-item-label,label,[class*='label'],[class*='Label'],[class*='formLabel']",
       sectionSelector: ".ant-card-head-title,.ant-collapse-header,.form-section-title,[class*='sectionTitle'],[class*='module-title'],h2,h3,h4",
       repeatItemSelector: ".ant-card,.ant-collapse-item,.resume-block,[class*='list-item'],[class*='resume-item'],[class*='record-item']",
       saveLabels: ["保存", "确定", "完成"],
@@ -123,11 +124,12 @@
     {
       id: "moka",
       name: "Moka 招聘",
-      urlPattern: /(?:^|\.)(?:mokahr|moka)\.com$/i,
+      urlPattern: /(?:^|\.)(?:mokahr|moka)\.com$|\/(?:m\/)?(?:campus-recruitment|social-recruitment|campus_apply)\//i,
       confidence: 0.9,
-      indicators: [".ant-form-item", "[class*='application-form']", "[class*='questionnaire']", "[class*='schema-form']"],
-      containerSelector: ".ant-form-item,[class*='form-item'],[class*='field-wrapper'],[class*='question-item'],[class*='schema-form-item']",
-      labelSelector: ".ant-form-item-label,label,[class*='field-label'],[class*='question-label'],[class*='question-title']",
+      // 实测申请表是自绘组件：字段块 apply-field-*，标题 title-*，下拉 sd-Select（类名带哈希后缀）。
+      indicators: ["[class*='apply-field-']", "[class*='sd-Select-container']", ".polyglot-separator", ".ant-form-item", "[class*='application-form']", "[class*='questionnaire']"],
+      containerSelector: "[class*='apply-field-'],.ant-form-item,[class*='form-item'],[class*='field-wrapper'],[class*='question-item'],[class*='schema-form-item']",
+      labelSelector: "[class*='title-'],.ant-form-item-label,label,[class*='field-label'],[class*='question-label'],[class*='question-title']",
       sectionSelector: ".ant-card-head-title,[class*='module-title'],[class*='questionnaire-title'],[class*='block-title'],h2,h3,h4",
       repeatItemSelector: ".ant-card,[class*='resume-item'],[class*='experience-item'],[class*='list-item'],[class*='card-item']",
       saveLabels: ["保存", "确定", "下一步", "完成"],
@@ -1429,12 +1431,18 @@
   }
 
   function normalizeFieldLabelText(value, maxLength = 90) {
-    return normalizeText(value, maxLength)
+    return stripBilingualLabelSuffix(normalizeText(value, maxLength)
       .replace(/^[*＊•\s]+/, "")
       .replace(/[:：]\s*$/, "")
       .replace(/^(请输入|请选择|请填写|请写明|点击选择)\s*/, "")
       .replace(/\s*(请输入|请选择|点击选择|选择)$/, "")
-      .trim();
+      .trim());
+  }
+
+  // Moka 等平台的中英双语标题形如“姓名 / Name”，只保留中文部分参与匹配。
+  function stripBilingualLabelSuffix(text) {
+    const match = String(text || "").match(/^(.*[一-龥].*?)\s*[/|｜]\s*[A-Za-z][A-Za-z0-9 .,'()&/-]*$/);
+    return match ? match[1].trim() : String(text || "");
   }
 
   function isOptionOnlyLabel(value) {
@@ -2187,6 +2195,7 @@
       required: Boolean(element.required || element.getAttribute("aria-required") === "true"),
       disabled: Boolean(element.disabled),
       readOnly: Boolean(element.readOnly || element.getAttribute("aria-readonly") === "true"),
+      maxLength: Number(element.maxLength) > 0 ? Number(element.maxLength) : 0,
       hasCurrentValue: hasMeaningfulControlValue(element, label, currentValue),
       currentValue,
       canFill,
@@ -3436,6 +3445,86 @@
         cursor: not-allowed;
         opacity: 0.5;
       }
+      #${PANEL_ID} .arf-actions.arf-actions-wide {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      #${PANEL_ID} .arf-tips {
+        margin: 0 0 10px;
+        padding: 8px 10px;
+        border: 1px solid rgba(15, 107, 79, 0.18);
+        border-radius: 12px;
+        background: #f3f8f4;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      #${PANEL_ID} .arf-tips[hidden] {
+        display: none;
+      }
+      #${PANEL_ID} .arf-tips summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: #0f6b4f;
+      }
+      #${PANEL_ID} .arf-tips ul {
+        margin: 6px 0 0;
+        padding-left: 18px;
+      }
+      #${PANEL_ID} .arf-tips .arf-tips-general {
+        margin-top: 6px;
+        color: #6f6a60;
+      }
+      #${PANEL_ID} .arf-drafts {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      #${PANEL_ID} .arf-drafts[hidden] {
+        display: none;
+      }
+      #${PANEL_ID} .arf-draft {
+        padding: 8px 10px;
+        border: 1px solid rgba(231, 223, 209, 0.95);
+        border-radius: 12px;
+        background: #fffdf7;
+      }
+      #${PANEL_ID} .arf-draft-question {
+        font-weight: 600;
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
+      #${PANEL_ID} .arf-draft textarea {
+        width: 100%;
+        min-height: 96px;
+        box-sizing: border-box;
+        border: 1px solid #ddd5c6;
+        border-radius: 8px;
+        padding: 6px 8px;
+        font: inherit;
+        font-size: 12px;
+        resize: vertical;
+      }
+      #${PANEL_ID} .arf-draft-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+        color: #6f6a60;
+        font-size: 11px;
+      }
+      #${PANEL_ID} .arf-draft-meta button {
+        border: 0;
+        border-radius: 8px;
+        padding: 4px 10px;
+        background: #0f6b4f;
+        color: #fff;
+        cursor: pointer;
+      }
+      #${PANEL_ID} .arf-draft-meta button.secondary {
+        background: #eaf2ed;
+        color: #0f6b4f;
+      }
       #${PANEL_ID} .arf-meta {
         color: #6f6a60;
         font-size: 12px;
@@ -3804,6 +3893,16 @@
       queueProfilePanelStateSave();
     });
 
+    const platformTips = document.createElement("details");
+    platformTips.className = "arf-tips";
+    platformTips.dataset.role = "platform-tips";
+    platformTips.hidden = true;
+
+    const drafts = document.createElement("div");
+    drafts.className = "arf-drafts";
+    drafts.dataset.role = "drafts";
+    drafts.hidden = true;
+
     const content = document.createElement("div");
     content.className = "arf-content";
     content.dataset.role = "quick-copy-list";
@@ -3860,16 +3959,191 @@
 
     actions.append(copyCategoryBtn, refreshBtn, settingsBtn);
 
+    const draftActions = document.createElement("div");
+    draftActions.className = "arf-actions arf-actions-wide";
+    const draftBtn = document.createElement("button");
+    draftBtn.type = "button";
+    draftBtn.dataset.action = "draft-open-answers";
+    draftBtn.textContent = "AI 起草开放题";
+    draftBtn.addEventListener("click", () => {
+      void draftOpenAnswersInPanel();
+    });
+    const tipsBtn = document.createElement("button");
+    tipsBtn.type = "button";
+    tipsBtn.className = "secondary";
+    tipsBtn.dataset.action = "platform-tips";
+    tipsBtn.textContent = "本站注意事项";
+    tipsBtn.addEventListener("click", () => {
+      renderPlatformTips(panel, { open: true });
+    });
+    draftActions.append(draftBtn, tipsBtn);
+
     const footer = document.createElement("div");
     footer.className = "arf-footer";
 
-    footer.append(status, progress, actions);
+    footer.append(status, progress, actions, draftActions);
 
-    body.append(searchInput, content);
+    body.append(platformTips, searchInput, content, drafts);
     panel.append(header, body, footer);
     document.documentElement.appendChild(host);
     profilePanel = panel;
+    renderPlatformTips(panel);
     return panel;
+  }
+
+  function renderPlatformTips(panel, options = {}) {
+    const box = panel?.querySelector?.('[data-role="platform-tips"]');
+    if (!box) return;
+    const guide = getCurrentPlatformGuide();
+    box.replaceChildren();
+    if (!guide) {
+      box.hidden = true;
+      return;
+    }
+    const summary = document.createElement("summary");
+    summary.textContent = guide.platform
+      ? `${guide.platform.name}：填写注意事项`
+      : "网申通用注意事项";
+    box.append(summary);
+    const list = document.createElement("ul");
+    for (const tip of (guide.tips.length ? guide.tips : guide.generalRules.slice(0, 4))) {
+      const item = document.createElement("li");
+      item.textContent = tip;
+      list.append(item);
+    }
+    box.append(list);
+    if (guide.platform) {
+      const general = document.createElement("div");
+      general.className = "arf-tips-general";
+      general.textContent = guide.platform.parse?.supported
+        ? `简历解析：${guide.platform.parse.note}`
+        : `保存方式：${guide.platform.save}`;
+      box.append(general);
+    }
+    box.hidden = !guide.platform && !options.open;
+    if (options.open) box.open = true;
+  }
+
+  // 开放题：只取网页上空着的、像问答题的文本框；问答库能精确复用的题目不重复起草。
+  function collectDraftableOpenQuestions() {
+    const library = globalThis.Form2OfferAnswerLibrary;
+    const rules = globalThis.Form2OfferFillRules;
+    if (!library?.isEligibleOpenQuestion) return [];
+    const unit = rules?.getMaxLengthUnit?.(location.hostname) || "char";
+    const results = [];
+    const seen = new Set();
+    for (const element of collectVisibleControls()) {
+      const type = getControlType(element);
+      if (!["textarea", "text", "contenteditable"].includes(type) || element.disabled || element.readOnly) continue;
+      if (getFullControlTextValue(element).trim()) continue;
+      const field = buildFieldMeta(element);
+      const question = inferFieldLabel(field);
+      if (!library.isEligibleOpenQuestion(question, "待起草", type)) continue;
+      const key = library.normalizeQuestionKey(question);
+      if (!key || seen.has(key) || library.findAnswerForQuestion?.(currentAnswerLibrary, question)) continue;
+      seen.add(key);
+      results.push({ id: field.fieldId, question: library.cleanQuestion(question), maxLength: field.maxLength || 0, unit });
+      if (results.length >= 8) break;
+    }
+    return results;
+  }
+
+  async function draftOpenAnswersInPanel() {
+    const panel = ensureProfilePanel();
+    const container = panel.querySelector('[data-role="drafts"]');
+    const button = panel.querySelector('[data-action="draft-open-answers"]');
+    const questions = collectDraftableOpenQuestions();
+    if (questions.length === 0) {
+      setProfilePanelStatus("本页没有空着的开放题；已填写或问答库里已有的题目不会重复起草。");
+      return;
+    }
+    if (button) button.disabled = true;
+    setProfilePanelStatus(`正在起草 ${questions.length} 道开放题，只会显示草稿，不会自动填入网页...`);
+    try {
+      const source = await getPageInsightSource();
+      const result = await sendRuntimeMessage({
+        type: "OJAF_DRAFT_OPEN_ANSWERS",
+        payload: { questions, job: source.job, hostname: location.hostname }
+      });
+      renderOpenAnswerDrafts(container, questions, result?.drafts || []);
+      const used = (result?.drafts || []).length;
+      setProfilePanelStatus(used ? `已生成 ${used} 条草稿，请逐条核对、修改后再点“填入”。` : "AI 没有返回可用草稿。");
+    } catch (error) {
+      setProfilePanelStatus(`起草失败：${formatErrorMessage(error)}`, true);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  function renderOpenAnswerDrafts(container, questions, drafts) {
+    if (!container) return;
+    const rules = globalThis.Form2OfferFillRules;
+    container.replaceChildren();
+    const byId = new Map(questions.map((question) => [question.id, question]));
+    for (const draft of drafts) {
+      const question = byId.get(draft.id);
+      if (!question || !String(draft.answer || "").trim()) continue;
+      const card = document.createElement("div");
+      card.className = "arf-draft";
+      const title = document.createElement("div");
+      title.className = "arf-draft-question";
+      title.textContent = question.question;
+      const editor = document.createElement("textarea");
+      editor.value = String(draft.answer).trim();
+      const meta = document.createElement("div");
+      meta.className = "arf-draft-meta";
+      const counter = document.createElement("span");
+      const updateCounter = () => {
+        const check = rules?.checkMaxLength?.(editor.value, question.maxLength, question.unit) || { fits: true, length: editor.value.length };
+        counter.textContent = question.maxLength
+          ? `${check.length}/${question.maxLength}${question.unit === "byte" ? " 字节" : " 字"}${check.fits ? "" : "（超出）"}`
+          : `${check.length} 字`;
+        counter.style.color = check.fits ? "" : "#b45309";
+      };
+      editor.addEventListener("input", updateCounter);
+      updateCounter();
+      const buttons = document.createElement("span");
+      const copyButton = document.createElement("button");
+      copyButton.type = "button";
+      copyButton.className = "secondary";
+      copyButton.textContent = "复制";
+      copyButton.addEventListener("click", () => {
+        void copyTextToClipboard(editor.value);
+      });
+      const fillButton = document.createElement("button");
+      fillButton.type = "button";
+      fillButton.textContent = "填入";
+      fillButton.addEventListener("click", () => {
+        void fillDraftIntoField(question, editor.value);
+      });
+      buttons.append(copyButton, document.createTextNode(" "), fillButton);
+      meta.append(counter, buttons);
+      card.append(title, editor, meta);
+      if (draft.note) {
+        const note = document.createElement("div");
+        note.className = "arf-draft-meta";
+        note.textContent = draft.note;
+        card.append(note);
+      }
+      container.append(card);
+    }
+    container.hidden = container.childElementCount === 0;
+  }
+
+  async function fillDraftIntoField(question, value) {
+    const element = document.querySelector(`[${FIELD_ATTR}="${CSS.escape(question.id)}"]`);
+    if (!element) {
+      setProfilePanelStatus("找不到这道题对应的输入框，可能页面已重新渲染；请复制后手动粘贴。", true);
+      return;
+    }
+    const field = buildFieldMeta(element);
+    const result = await fillElementSmart(element, value, field, { fieldLabel: question.question, writeMode: "text" });
+    if (result.ok) {
+      markElement(element, "filled", "AI 草稿（已人工确认）");
+      setProfilePanelStatus("已填入。提交前请再读一遍；满意的话可在弹窗里“记住本页已填写问答”。");
+    } else {
+      setProfilePanelStatus(`未能填入：${result.reason}`, true);
+    }
   }
 
   async function openOptionsPageFromProfilePanel() {
@@ -7036,7 +7310,7 @@
     const isChoiceField = candidate?.writeMode === "choice" || /选择|请选择|下拉|选择项|单选/.test(text);
 
     if (candidate?.writeMode === "date") {
-      const dateValue = normalizeDateValue(value);
+      const dateValue = adaptDateValueForControl(element, normalizeDateValue(value), candidate?.fieldLabel || field?.label || "");
       const elementDateResult = await tryFillElementDatePicker(element, dateValue);
       if (elementDateResult.handled) {
         return elementDateResult;
@@ -7097,7 +7371,7 @@
     }
 
     if (element instanceof HTMLSelectElement) {
-      const matched = setSelectValue(element, value);
+      const matched = setSelectValue(element, value, candidate?.fieldLabel || field?.label || "");
       return matched
         ? { ok: true }
         : { ok: false, reason: "未找到匹配的下拉选项" };
@@ -7118,12 +7392,51 @@
       }
     }
 
+    const limit = checkControlMaxLength(element, value);
+    if (!limit.fits) {
+      const unitLabel = limit.unit === "byte" ? "字节（汉字算 2）" : "字";
+      return { ok: false, reason: `超过此框上限：${limit.length}/${limit.maxLength} ${unitLabel}，未截断，请改用短版本` };
+    }
+
     element.focus();
     setNativeValue(element, value);
     await sleep(0);
     return valuesLookEquivalent(getControlCurrentValue(element), value)
       ? { ok: true }
       : { ok: false, reason: "字段写入后未被页面接受" };
+  }
+
+  // 51job / 应届生的 maxlength 按字节计；脚本赋值会绕过浏览器限制，所以写入前先检查。
+  function checkControlMaxLength(element, value) {
+    const rules = globalThis.Form2OfferFillRules;
+    const maxLength = Number(element?.maxLength) > 0 ? Number(element.maxLength) : 0;
+    if (!rules || !maxLength) return { fits: true };
+    return rules.checkMaxLength(value, maxLength, rules.getMaxLengthUnit(location.hostname));
+  }
+
+  // 只有年月的资料写进“要日”的控件：开始取 1 日、结束取月末；My97 等控件按占位符格式写。
+  function adaptDateValueForControl(element, dateValue, fieldLabel) {
+    const rules = globalThis.Form2OfferFillRules;
+    if (!rules || !/^\d{4}-\d{2}(?:-\d{2})?$/.test(dateValue)) return dateValue;
+    const placeholder = String(element?.getAttribute?.("placeholder") || "");
+    const pickerHints = [
+      element?.getAttribute?.("onfocus"),
+      element?.getAttribute?.("onclick"),
+      element?.className,
+      element?.closest?.(".el-date-editor")?.className
+    ].map((value) => String(value || "")).join(" ");
+    const wantsDay =
+      (element instanceof HTMLInputElement && ["date", "datetime-local"].includes(element.type)) ||
+      /dd|日/.test(placeholder) ||
+      /WdatePicker|Wdate|el-date-editor--date(?!range)/.test(pickerHints);
+    let result = dateValue;
+    if (wantsDay && /^\d{4}-\d{2}$/.test(result)) {
+      result = rules.projectMonthToDay(result, rules.inferDateRole(fieldLabel) || "start") || result;
+    }
+    if (/y{2,4}\s*[/.]\s*m{1,2}/i.test(placeholder)) {
+      result = rules.formatDateForPattern(result, placeholder);
+    }
+    return result;
   }
 
   function resolveEditableTarget(element) {
@@ -7173,12 +7486,16 @@
 
   async function fillRoleChoice(element, value, field, candidate) {
     const role = element.getAttribute("role") || getControlType(element);
-    const target = normalizeChoiceValue(value, candidate?.fieldLabel || field?.label || "");
     const root = findChoiceFieldContainer(element);
     const options = Array.from(
       root.querySelectorAll(
         '[role="radio"],[role="checkbox"],label,button,.phoenix-radio-group__radioItem,.phoenix-checkbox__item,[class*="radio"],[class*="checkbox"]'
       )
+    );
+    const target = resolveRankChoiceTarget(
+      normalizeChoiceValue(value, candidate?.fieldLabel || field?.label || ""),
+      options.map((option) => getElementText(option)),
+      candidate?.fieldLabel || field?.label || ""
     );
     const matched = options.find((option) => {
       const text = getElementText(option);
@@ -7218,10 +7535,14 @@
       return { ok: false, reason: "unsupported choice field" };
     }
 
-    const target = normalizeChoiceValue(value, candidate?.fieldLabel || field?.label || "");
     const group = element.name
       ? Array.from(document.querySelectorAll(`input[type="radio"][name="${CSS.escape(element.name)}"]`))
       : [element];
+    const target = resolveRankChoiceTarget(
+      normalizeChoiceValue(value, candidate?.fieldLabel || field?.label || ""),
+      group.map((radio) => getChoiceLabelText(radio)),
+      candidate?.fieldLabel || field?.label || ""
+    );
     let matched = null;
 
     for (const radio of group) {
@@ -7542,6 +7863,16 @@
     return { handled: true, ok: true };
   }
 
+  // 成绩排名：页面没有资料里的档位时，选仍包含真实排名的最小档（前10% → 前20%），不选更好的档。
+  function resolveRankChoiceTarget(target, optionLabels, fieldLabel = "") {
+    const rules = globalThis.Form2OfferFillRules;
+    const text = String(target || "");
+    if (!rules || rules.parseRankPercent(text) == null) return text;
+    if (!/前\s*\d|top/i.test(text) && !/排名|名次|rank/i.test(String(fieldLabel || ""))) return text;
+    const picked = rules.pickRankOption(text, optionLabels);
+    return picked ? picked.label : text;
+  }
+
   function choiceTextMatches(label, target) {
     const dateUtils = globalThis.Form2OfferDateUtils;
     const leftNumeric = dateUtils?.normalizeNumericChoiceToken?.(label) || "";
@@ -7610,7 +7941,7 @@
       ? globalThis.Form2OfferProfileUtils?.projectFamilyRelationChoice?.(rawTarget, optionLabels) || rawTarget
       : /任职时长|实习时长|工作时长/.test(normalizedFieldKey)
         ? globalThis.Form2OfferProfileUtils?.projectDurationChoice?.(rawTarget, optionLabels) || rawTarget
-        : rawTarget;
+        : resolveRankChoiceTarget(rawTarget, optionLabels, fieldLabel);
     const hierarchicalResult = await tryFillHierarchicalChoiceOptions(value, target);
     if (hierarchicalResult.ok) {
       return hierarchicalResult;
@@ -8279,15 +8610,19 @@
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function setSelectValue(element, value) {
-    const stringValue = String(value || "").trim();
-    if (!stringValue) return false;
-    const normalizedTarget = normalizeChoiceLabel(stringValue);
+  function setSelectValue(element, value, fieldLabel = "") {
     const options = Array.from(element.options).filter((option) =>
       !option.disabled && !option.parentElement?.disabled &&
       String(option.value || "").trim() &&
       !/^(?:请选择|请选择一项|选择|please select|select an option)$/i.test(String(option.textContent || "").trim())
     );
+    const stringValue = resolveRankChoiceTarget(
+      String(value || "").trim(),
+      options.map((option) => normalizeText(option.textContent || "", 120)),
+      fieldLabel
+    );
+    if (!stringValue) return false;
+    const normalizedTarget = normalizeChoiceLabel(stringValue);
     const exact = options.find((option) =>
       option.value === stringValue || normalizeChoiceLabel(option.textContent || "") === normalizedTarget
     );
@@ -8738,12 +9073,93 @@
     return { entries, scannedCount: controls.length };
   }
 
+  // 平台识别：域名优先，其次用页面指纹（自有域名上的 Moka、北森等）。
+  function getPageSignals() {
+    const knowledge = globalThis.Form2OfferPlatformKnowledge;
+    if (!knowledge) return [];
+    return knowledge.getFingerprintSelectors().filter((selector) => {
+      try {
+        return Boolean(document.querySelector(selector));
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  function getCurrentPlatformGuide() {
+    const knowledge = globalThis.Form2OfferPlatformKnowledge;
+    if (!knowledge) return null;
+    const signals = getPageSignals();
+    const detected = knowledge.detectPlatform(location.href, signals);
+    const guide = knowledge.getPlatformGuide(detected ? detected.id : location.href, signals);
+    return { detected, signals, ...guide };
+  }
+
+  const JD_HEADING_PATTERN = /^(?:岗位职责|工作职责|职位描述|岗位描述|职位详情|岗位详情|任职要求|岗位要求|职位要求|任职资格|工作内容|招聘要求|Job Description|Responsibilities|Requirements|Qualifications)\s*[:：]?$/i;
+
+  // 从招聘页取岗位描述，只读页面文字；申请表页常没有 JD，此时返回空串。
+  function collectJobDescriptionText(maxLength = 6000) {
+    const parts = [];
+    const seen = new Set();
+    const headings = Array.from(document.querySelectorAll("h1,h2,h3,h4,h5,strong,b,dt,p,span,div"))
+      .filter((element) => {
+        if (element.closest(`#${PANEL_ID},#${FLOAT_ID},form,[contenteditable="true"]`)) return false;
+        const ownText = normalizeText(element.textContent, 40);
+        return ownText.length <= 24 && JD_HEADING_PATTERN.test(ownText) && isVisible(element);
+      })
+      .slice(0, 8);
+    for (const heading of headings) {
+      let block = heading.parentElement;
+      for (let depth = 0; block && depth < 3 && normalizeText(block.innerText, 6000).length < 40; depth += 1) {
+        block = block.parentElement;
+      }
+      const text = String(block?.innerText || "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 3000);
+      if (text && !seen.has(text)) {
+        seen.add(text);
+        parts.push(text);
+      }
+    }
+    if (parts.length === 0) {
+      for (const item of collectJobPostingStructuredData().flat()) {
+        const posting = item?.["@type"] === "JobPosting" ? item : null;
+        const description = posting?.description ? String(posting.description).replace(/<[^>]+>/g, " ") : "";
+        if (description) parts.push(description.slice(0, 3000));
+      }
+    }
+    return parts.join("\n\n").slice(0, maxLength);
+  }
+
+  async function getPageInsightSource() {
+    let info = {};
+    try {
+      info = await getJobPageInfo();
+    } catch {
+      info = {};
+    }
+    const guide = getCurrentPlatformGuide();
+    return {
+      hostname: location.hostname,
+      platform: guide?.platform ? { id: guide.platform.id, name: guide.platform.name, familyLabel: guide.platform.familyLabel, parse: guide.platform.parse } : null,
+      tips: guide?.tips || [],
+      generalRules: guide?.generalRules || [],
+      job: {
+        company: info.companyName || "",
+        title: info.jobTitle || "",
+        description: collectJobDescriptionText()
+      }
+    };
+  }
+
   async function getAgentSnapshot() {
     await refreshCurrentProfile({ force: true });
     const scan = await scanForm();
+    const source = await getPageInsightSource();
     return {
       scan,
-      profileCatalog: buildProfileCatalogFromEntries(getCurrentProfileEntries())
+      profileCatalog: buildProfileCatalogFromEntries(getCurrentProfileEntries()),
+      job: source.job,
+      signals: getPageSignals(),
+      platform: source.platform
     };
   }
 
@@ -8861,6 +9277,10 @@
 
     if (message.type === "OJAF_GET_AGENT_SNAPSHOT") {
       return getAgentSnapshot();
+    }
+
+    if (message.type === "OJAF_GET_PAGE_INSIGHT_SOURCE") {
+      return getPageInsightSource();
     }
 
     if (message.type === "OJAF_APPLY_AGENT_PLAN") {

@@ -48,6 +48,7 @@ function connectFakeExtension(port, call, { token = BROWSER_TOKEN } = {}) {
   const ready = new Promise((resolve, reject) => {
     socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "auth", token, info: { extensionVersion: "0.13.0", linkEnabled: true, includeValues: true } })));
     socket.addEventListener("close", () => reject(new Error("closed")));
+    socket.addEventListener("error", () => reject(new Error("closed")));
     socket.addEventListener("message", async (event) => {
       const message = JSON.parse(event.data);
       events.push(message);
