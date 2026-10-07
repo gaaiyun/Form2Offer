@@ -768,8 +768,19 @@ async function pairAgentBridge() {
     await sendRuntimeMessage({ type: "OJAF_AGENT_PAIR", payload: { bridgeUrl: config.bridgeUrl, code } });
     fields.agentPairCode.value = "";
     setAgentFeedback("配对成功，令牌已安全保存在扩展后台。", false, true);
-  } catch (error) { setAgentFeedback(`配对失败：${error.message}`, true); }
+  } catch (error) {
+    // 配对码用过一次就会更换：重复点“配对”会报无效，但此前的配对其实仍然有效。
+    const alreadyPaired = /invalid/i.test(error.message)
+      && await sendRuntimeMessage({ type: "OJAF_AGENT_STATUS" }).then(() => true, () => false);
+    if (alreadyPaired) {
+      fields.agentPairCode.value = "";
+      setAgentFeedback("这个配对码已经用过；扩展与 Bridge 已配对，不用再配。", false, true);
+    } else {
+      setAgentFeedback(`配对失败：${error.message}`, true);
+    }
+  }
   finally { setAgentBusy(false); }
+  void refreshAgentLinkStatus();
 }
 
 async function loadAgentSources() {
@@ -800,7 +811,19 @@ async function refreshAgentLinkStatus() {
     document.getElementById("agentLinkIncludeValues").checked = status.includeValues !== false;
     document.getElementById("agentLinkFeedback").textContent = describeAgentLink(status);
   } catch (error) {
-    document.getElementById("agentLinkFeedback").textContent = `读取连接状态失败：${error.message}`;
+    const feedback = document.getElementById("agentLinkFeedback");
+    if (/Unknown message type/i.test(error.message)) {
+      // 扩展文件更新后后台仍在跑旧代码，新功能的消息它不认识。
+      feedback.textContent = "扩展后台还是旧版本，需要重新加载一次扩展才能连接 Agent。";
+      const reload = document.createElement("button");
+      reload.type = "button";
+      reload.className = "secondary";
+      reload.textContent = "重新加载扩展";
+      reload.addEventListener("click", () => chrome.runtime.reload());
+      feedback.append(" ", reload);
+      return;
+    }
+    feedback.textContent = `读取连接状态失败：${error.message}`;
   }
 }
 
@@ -823,6 +846,10 @@ async function saveAgentLinkSettings() {
     const status = await sendRuntimeMessage({ type: "OJAF_SAVE_AGENT_LINK", payload: { enabled, includeValues } });
     feedback.textContent = describeAgentLink(status);
   } catch (error) {
+    if (/Unknown message type/i.test(error.message)) {
+      await refreshAgentLinkStatus();
+      return;
+    }
     feedback.textContent = `保存失败：${error.message}`;
   }
 }
