@@ -25,6 +25,29 @@ test("counts only populated repeat items and respects the configured cap", () =>
   assert.equal(profileUtils.countPopulatedItems(profile, "papers", 2), 2);
 });
 
+test("leaves trailing high-school records out unless the page asks for them", () => {
+  const config = profileUtils.getRepeatConfigs().find((item) => item.sectionKey === "education");
+  const profile = {
+    sections: {
+      education: {
+        items: [
+          populated({ 学校: "某大学", 学历: "硕士研究生" }),
+          populated({ 学校: "某大学", 学历: "本科" }),
+          populated({ 学校: "某中学", 学历: "高中" })
+        ]
+      }
+    }
+  };
+  assert.equal(profileUtils.getDesiredRepeatItemCount(profile, config), 2);
+  assert.equal(profileUtils.getDesiredRepeatItemCount(profile, config, { includeSecondaryEducation: true }), 3);
+
+  const onlySchool = { sections: { education: { items: [populated({ 学校: "某中学", 学历: "高中" })] } } };
+  assert.equal(profileUtils.getDesiredRepeatItemCount(onlySchool, config), 1);
+
+  const internship = profileUtils.getRepeatConfigs().find((item) => item.sectionKey === "internship");
+  assert.equal(profileUtils.getDesiredRepeatItemCount(profile, internship), 0);
+});
+
 test("resolves explicit and section-scoped generic add actions", () => {
   assert.equal(profileUtils.getConfigForActionText("新增教育经历")?.sectionKey, "education");
   assert.equal(profileUtils.getConfigForActionText("添加论文/专著")?.sectionKey, "papers");

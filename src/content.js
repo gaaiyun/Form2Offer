@@ -2662,8 +2662,10 @@
     }
 
     let expanded = 0;
+    // 页面提到“高中”（如“从高中填起”）才给高中单列一条教育经历。
+    const includeSecondaryEducation = /高中/.test(document.body?.innerText || "");
     for (const config of profileUtils.getRepeatConfigs()) {
-      const desiredCount = profileUtils.getDesiredRepeatItemCount(currentProfileV2, config);
+      const desiredCount = profileUtils.getDesiredRepeatItemCount(currentProfileV2, config, { includeSecondaryEducation });
       for (let attempt = 0; attempt < config.maxItems && expanded < MAX_KNOWN_REPEAT_EXPANSIONS; attempt += 1) {
         const action = findKnownRepeatAddControl(config);
         if (!action) {

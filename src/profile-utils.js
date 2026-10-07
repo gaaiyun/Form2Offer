@@ -130,11 +130,27 @@
     return Math.min(limit, items.filter(isPopulatedItem).length);
   }
 
-  function getDesiredRepeatItemCount(profileV2, config) {
+  const SECONDARY_EDUCATION_PATTERN = /^(高中|普通高中|中专|中职|职高|技校|初中)$/;
+
+  function getDesiredRepeatItemCount(profileV2, config, options = {}) {
     if (!config?.sectionKey) {
       return 0;
     }
-    return countPopulatedItems(profileV2, config.sectionKey, config.maxItems);
+    const count = countPopulatedItems(profileV2, config.sectionKey, config.maxItems);
+    if (config.sectionKey !== "education" || options.includeSecondaryEducation) {
+      return count;
+    }
+    // 有大学经历时默认不单列末尾的高中/中专：很多表“专业”必填，高中记录会卡提交；页面写明要高中时再加。
+    const items = (profileV2?.sections?.education?.items || []).filter(isPopulatedItem);
+    const level = (item) => String(item?.values?.["学历"] || item?.values?.["学历层次"] || "").trim();
+    if (!items.some((item) => level(item) && !SECONDARY_EDUCATION_PATTERN.test(level(item)))) {
+      return count;
+    }
+    let trailing = 0;
+    for (let index = items.length - 1; index >= 0 && SECONDARY_EDUCATION_PATTERN.test(level(items[index])); index -= 1) {
+      trailing += 1;
+    }
+    return Math.max(0, Math.min(count, items.length - trailing));
   }
 
   function parseYearMonth(value) {
