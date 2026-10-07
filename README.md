@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.11.0" src="https://img.shields.io/badge/version-0.11.0-0f766e" />
+  <img alt="Version 0.13.0" src="https://img.shields.io/badge/version-0.13.0-0f766e" />
   <a href="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml"><img alt="Verify" src="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml/badge.svg" /></a>
   <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2563eb" />
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-334155" />
@@ -25,7 +25,7 @@ Form2Offer 是一个面向求职网申场景的 Chrome / Edge 浏览器扩展。
 > [!IMPORTANT]
 > Form2Offer 是填写辅助工具，不是自动投递工具。它不会上传附件、绕过验证码或点击最终提交。每次填写都由用户主动触发，结果也必须由用户复核。
 
-当前版本为 **0.11.0 公测版**，可通过 Release 安装或直接加载源码目录。项目尚未发布到浏览器扩展商店。
+当前版本为 **0.13.0 公测版**，可通过 Release 安装或直接加载源码目录。项目尚未发布到浏览器扩展商店。
 
 ## 界面预览
 
@@ -42,7 +42,10 @@ Form2Offer 是一个面向求职网申场景的 Chrome / Edge 浏览器扩展。
 | 多条项目经历 | 识别项目经历、项目经验、科研项目等分区，按本地项目顺序填写；只在已确认的项目区有限触发“添加项目” |
 | 投递追踪 | 从当前招聘页提取待确认的公司和职位，记录渠道、投递时间、流程状态、状态更新时间和备注；支持筛选、排序、行内更新及 CSV 导入导出 |
 | 本地问答记忆 | 用户主动保存当前页已填写的开放题，按标准化后的完整题目精确复用；提供独立管理页，可搜索、编辑、删除和清空 |
-| 本地 Agent 协作 | 可选 Local Bridge 连接 Codex CLI 或 MCP Client；Agent 读取白名单资料生成方案，用户审阅确认后才写入网页 |
+| 本地 Agent 协作 | 可选 Local Bridge 连接 Codex、Claude Code 等 MCP Client；Agent 可主动读取浏览器表单、查看逐字段填写结果，方案经用户审阅确认后才写入网页 |
+| 平台知识与岗位速读 | 38 类招聘站的登录、简历解析、保存与提交注意事项；识别岗位硬门槛、限投规则并推荐简历版本 |
+| AI 起草开放题 | 用户开启后按经历摘要起草开放题，逐题审阅修改后再填入 |
+| 北森 Phoenix 表单 | 月份面板日期、地区选择器、多选城市、“添加经历”按钮在记录内等情况已用真实租户结构回归 |
 | 质量验证 | 自动化测试覆盖谨慎填写、日期下拉、项目经历、投递追踪、CSV 兼容与扩展权限边界 |
 
 自动化样例用于防止已知行为回归，不代表对所有招聘网站永久兼容。真实页面仍应在提交前逐项复核。
@@ -74,7 +77,7 @@ flowchart LR
 | --- | --- |
 | 一份履历复用 | 本地维护基本信息、求职意向、教育、工作、项目、证书、家庭信息和自定义栏目 |
 | 表单识别 | 支持文本框、文本域、原生选择框、日期、单选、多选、分拆年/月日期区间及部分 React / Vue 自定义控件 |
-| 招聘系统适配 | 已包含北森、Moka、飞书招聘、HotJob、智联、猎聘、牛客及常见 UI 组件的启发式规则 |
+| 招聘系统适配 | 已包含北森、Moka、飞书招聘、HotJob、智联、猎聘、牛客及常见 UI 组件的启发式规则；平台知识库给出各站的登录方式、简历解析是否覆盖和提交判定 |
 | 项目经历填写 | 识别项目经历、项目经验、科研项目等常见分区与字段别名；内联项目列表可按本地资料条数有限新增并按顺序填写 |
 | 本地优先匹配 | 未配置 AI 时可完全使用本地规则；AI 不可用时自动回退到本地匹配 |
 | 可选 AI 映射 | 先完成本地匹配，仅对未识别或低置信度字段发起一次有数量上限的精简请求，不直接接收本机履历资料值 |
@@ -93,7 +96,8 @@ flowchart LR
 | 场景 | 默认行为 | 是否可配置 |
 | --- | --- | --- |
 | 网页字段已有内容 | 不覆盖 | 可开启覆盖 |
-| 证件、家庭、紧急联系人、健康等敏感字段 | 留给人工确认 | 可开启填写 |
+| 家庭、紧急联系人、政治面貌、籍贯、健康等敏感字段 | 留给人工确认 | 可开启填写 |
+| 证件号码、护照号 | 留给人工确认 | 单独开关，导入的底稿不能替你打开 |
 | 背景调查、诚信声明、亲属回避、合规问答 | 留给人工确认 | 可开启填写 |
 | 文件上传、申请按钮、最终提交 | 永不自动操作 | 不可开启 |
 
@@ -128,9 +132,11 @@ AI 功能默认关闭。配置后，每次“开始填写”最多发起一次�
 
 请求不应包含姓名、电话、邮箱、证件号、学校名称、公司名称或经历正文等本机履历资料值。自定义 AI 服务由用户自行选择，其数据处理条款不受本项目控制，请只配置可信服务。
 
+“AI 起草开放题”是例外，需在设置页单独开启：开启后会把经历摘要（不含电话、邮箱、证件号和家庭信息）连同题目发给所配置的 AI 服务，生成的草稿只显示在面板里，由你修改确认后才填入。
+
 ## 安装
 
-当前版本通过开发者模式加载，无需构建。普通用户可从 [Releases](https://github.com/gaaiyun/Form2Offer/releases) 下载 `Form2Offer-v0.11.0.zip` 并解压；开发者也可以克隆源码：
+当前版本通过开发者模式加载，无需构建。普通用户可从 [Releases](https://github.com/gaaiyun/Form2Offer/releases) 下载 `Form2Offer-v0.13.0.zip` 并解压；开发者也可以克隆源码：
 
 ```powershell
 git clone https://github.com/gaaiyun/Form2Offer.git
@@ -159,7 +165,7 @@ cd Form2Offer
 
 ### 可选：连接本地 Agent
 
-Release 另行提供 `Form2Offer-Bridge-win-x64-v0.11.0.zip`。解压后按 [Local Bridge 使用说明](bridge/README.md) 初始化资料白名单并启动 Bridge，再到扩展设置页完成一次性配对。此后可在招聘页点击“交给本地 Agent”，选择 Codex CLI 自动任务或 MCP Client 主动领取模式。方案在独立审阅页显示，未勾选确认前不会修改网页。
+Release 另行提供 `Form2Offer-Bridge-win-x64-v0.13.0.zip`。解压后按 [Local Bridge 使用说明](bridge/README.md) 初始化资料白名单并启动 Bridge，再到扩展设置页完成一次性配对。此后可在招聘页点击“交给本地 Agent”，选择 Codex CLI 自动任务或 MCP Client 主动领取模式；也可以在弹窗里开启“允许本地 Agent 读取浏览器表单”，让 Agent 主动读表。方案在独立审阅页显示，未勾选确认前不会修改网页。Codex、Claude Code 的注册命令和工具清单见 [本地 Agent 接入指南](docs/AGENT_GUIDE.md)。
 
 > [!TIP]
 > 首次在某个网站使用时，建议保留全部谨慎策略，只用虚构或低敏感度数据验证字段映射是否正确。
@@ -167,7 +173,7 @@ Release 另行提供 `Form2Offer-Bridge-win-x64-v0.11.0.zip`。解压后按 [Loc
 ## 兼容性说明
 
 - 浏览器：基于 Manifest V3，面向新版 Chrome 与 Edge。
-- 页面控件：原生表单控件覆盖较好，并支持常见的开始/结束年、月自定义下拉组合与内联项目经历列表；弹窗式新增项目、Shadow DOM、级联地址、复杂富文本和未适配的虚拟列表仍可能需要手动处理或再次运行填写。
+- 页面控件：原生表单控件覆盖较好，并支持常见的开始/结束年、月自定义下拉组合、内联项目经历列表和北森地区选择器；弹窗式新增项目、Shadow DOM、其他平台的级联地址、复杂富文本和未适配的虚拟列表仍可能需要手动处理或再次运行填写。
 - 多步骤表单：切换到下一页后需要再次点击“开始填写”。
 - 平台规则：本项目不绕过验证码、反自动化机制或招聘平台限制。
 - AI 接口：兼容常见 OpenAI 风格的 `/chat/completions` 接口；不同服务的响应格式仍可能需要适配。
@@ -182,6 +188,13 @@ npm test        # 运行单元测试
 npm run verify  # 依次执行语法检查和测试
 npm run package:extension
 npm run package:bridge
+```
+
+真实平台结构的浏览器回归（需要 Playwright 与 Chromium，可用环境变量 `FORM2OFFER_QA_PROFILE` 指向自己的资料备份）：
+
+```powershell
+node scripts/qa-beisen-fixture.js   # 北森 Phoenix 复刻页，逐字段输出来源和结果
+node scripts/qa-extension-smoke.js  # 通用表单、日期下拉、项目经历与策略开关
 ```
 
 当前测试重点覆盖：
@@ -215,11 +228,15 @@ Form2Offer/
 │  ├─ agent-bridge.js         # localhost 配置、快照脱敏与请求边界
 │  ├─ agent-review.*          # Agent 方案轮询、审阅和确认填写
 │  ├─ date-utils.js           # 日期拆分、投影与数值选项匹配
-├─ bridge/                    # 独立发布的 Local Bridge、Codex Host 与 MCP Server
+│  ├─ platform-knowledge.js   # 38 类招聘站的识别特征与注意事项
+│  ├─ fill-rules.js           # 排名选档、年月转日、按字节计的字数上限
+│  ├─ job-insight.js          # 岗位族、硬门槛、限投与简历版本推荐
+│  ├─ ai-drafting.js          # 开放题起草的摘要脱敏与提示词
 │  ├─ project-utils.js        # 项目分区、字段与安全新增动作识别
 │  ├─ safety-policy.js        # 谨慎填写策略
 │  ├─ message-policy.js       # 扩展消息权限策略
 │  └─ ai-privacy.js           # AI 请求脱敏工具
+├─ bridge/                    # 独立发布的 Local Bridge、Codex Host 与 MCP Server
 ├─ tests/                     # Node.js 单元测试与表单样例
 ├─ scripts/                   # Logo 与浏览器 QA 辅助脚本
 ├─ docs/                      # 字段、平台兼容与质量验证文档
@@ -230,17 +247,16 @@ Form2Offer/
 
 - 网站专用规则仍需通过更多真实页面持续回归验证。
 - 公司和职位识别依赖招聘页结构化数据与启发式页面信号，保存前仍需用户核对。
-- 本地资料暂未提供口令加密、多份履历版本和职位级资料切换。
+- 本地资料暂未提供口令加密；简历版本目前只做推荐，还不能按职位切换整份资料。
 - 用户纠正后的通用字段映射尚不能按网站自动学习和复用；当前仅开放题支持精确题目记忆。
-- 开放题暂不提供独立的 AI 草稿审阅流程。
 - 当前没有浏览器商店签名包或自动更新通道。
 
 ## 路线图
 
 1. 建立 ATS 适配器目录、匿名化页面样例和持续回归测试。
 2. 在本地记录用户纠正后的通用字段映射，并按域名复用。
-3. 支持多份履历版本与职位定制字段。
-4. 为开放题增加发送前预览、可编辑的 AI 草稿流程。
+3. 按职位切换整份履历版本与定制字段。
+4. 为更多平台补充真实结构复刻页和回归脚本。
 5. 增加加密导出和可选的本地资料保险箱。
 6. 完成 Chrome / Edge 扩展商店发布所需的权限与隐私审查。
 

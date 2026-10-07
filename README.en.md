@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.11.0" src="https://img.shields.io/badge/version-0.11.0-0f766e" />
+  <img alt="Version 0.13.0" src="https://img.shields.io/badge/version-0.13.0-0f766e" />
   <a href="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml"><img alt="Verify" src="https://github.com/gaaiyun/Form2Offer/actions/workflows/verify.yml/badge.svg" /></a>
   <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2563eb" />
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-334155" />
@@ -25,7 +25,7 @@ Form2Offer is a Chrome and Edge extension for assisted job-application form fill
 > [!IMPORTANT]
 > Form2Offer is a filling assistant, not an application bot. It does not upload files, bypass CAPTCHAs, or click final submit controls. Every run is user initiated and every result requires review.
 
-Version **0.11.0 is a public beta** available through GitHub Releases or as an unpacked extension. It is not yet distributed through a browser extension store.
+Version **0.13.0 is a public beta** available through GitHub Releases or as an unpacked extension. It is not yet distributed through a browser extension store.
 
 ## Preview
 
@@ -42,6 +42,10 @@ Version **0.11.0 is a public beta** available through GitHub Releases or as an u
 | Repeated projects | Recognizes project-experience and research-project sections, fills in local profile order, and invokes bounded add actions only inside verified project sections |
 | Application tracking | Extracts user-confirmed company and role candidates, then stores channel, application time, pipeline status, status-update time, and notes with filtering, sorting, inline updates, and CSV import/export |
 | Local answer memory | Saves completed open-ended answers only after explicit confirmation, reuses normalized exact questions, and provides search, edit, delete, and clear controls |
+| Local agents | An optional loopback-only Local Bridge lets Codex, Claude Code, and other MCP clients read the active application form, inspect per-field fill results, and propose plans that are written only after review |
+| Platform knowledge and job insight | Notes for 38 recruiting-site families (sign-in, resume parsing, save and submit evidence); job pages are checked for hard requirements, application limits, and the best-fit resume version |
+| AI drafts for open questions | When enabled, drafts answers from an experience summary for review and editing before anything is filled |
+| Beisen Phoenix forms | Month-panel dates, region pickers, multi-select cities, and add buttons nested inside records are covered by a structure replica of a live tenant |
 | Verification | Automated coverage includes conservative filling, date dropdowns, project records, tracking, CSV compatibility, and extension privilege boundaries |
 
 Fixtures prevent regressions in known behavior; they are not a permanent compatibility guarantee for every recruiting site. Review every field before submission.
@@ -91,7 +95,8 @@ Recruiting pages change frequently. A listed heuristic is not a permanent compat
 | Situation | Default behavior | Configurable |
 | --- | --- | --- |
 | A page field already has a value | Preserve it | Yes |
-| Identity, family, emergency contact, health, and similar sensitive fields | Leave for review | Yes |
+| Family, emergency contact, political status, native place, health, and similar sensitive fields | Leave for review | Yes |
+| ID and passport numbers | Leave for review | Separate switch that an imported profile cannot turn on |
 | Background checks, declarations, conflict and compliance questions | Leave for review | Yes |
 | File uploads and final submission controls | Never automate | No |
 
@@ -117,9 +122,11 @@ AI is disabled until configured. Each **Start filling** run makes at most one ma
 
 It should not contain local profile values such as names, phone numbers, email addresses, document numbers, school or employer names, or experience text. Users choose their own AI provider; only configure a service whose data handling terms you trust.
 
+AI drafting for open questions is the exception and has its own opt-in. When enabled, an experience summary (without phone, email, ID numbers, or family details) is sent with the question to the configured provider. Drafts appear only in the panel and are filled after you edit and confirm them.
+
 ## Install
 
-The current version loads directly in developer mode and has no build step. Users can download and extract `Form2Offer-v0.11.0.zip` from [Releases](https://github.com/gaaiyun/Form2Offer/releases); contributors can clone the source:
+The current version loads directly in developer mode and has no build step. Users can download and extract `Form2Offer-v0.13.0.zip` from [Releases](https://github.com/gaaiyun/Form2Offer/releases); contributors can clone the source:
 
 ```powershell
 git clone https://github.com/gaaiyun/Form2Offer.git
@@ -145,10 +152,14 @@ Import [sample-profile.json](sample-profile.json) from Settings to try the workf
 7. Reopen Form2Offer, verify the company, role, channel, time, and status under **Application tracking**, then save the record.
 8. Open the tracker to search and sort records, update pipeline stages inline, edit status-page links, or import and export CSV.
 
+### Optional: connect a local agent
+
+Releases also include `Form2Offer-Bridge-win-x64-v0.13.0.zip`. Follow the [Local Bridge guide](bridge/README.md) to approve source files and start the Bridge, then pair it once from Settings. In the popup, **允许本地 Agent 读取浏览器表单** (allow local agents to read browser forms) lets Codex or Claude Code read the current form through MCP. Plans appear on a separate review page and nothing is written until you confirm. Registration commands and the tool list are in the [agent guide](docs/AGENT_GUIDE.md) (Chinese).
+
 ## Compatibility notes
 
 - Browser: Manifest V3 for current Chrome and Edge releases.
-- Controls: native controls have the broadest coverage, with support for common custom start/end year-month dropdown groups and inline project repeaters; modal project editors, shadow DOM, cascading addresses, rich editors, and unsupported virtual lists may require another run or manual handling.
+- Controls: native controls have the broadest coverage, with support for common custom start/end year-month dropdown groups and inline project repeaters; modal project editors, shadow DOM, cascading addresses outside Beisen, rich editors, and unsupported virtual lists may require another run or manual handling.
 - Multi-step forms: invoke Form2Offer again after navigating to the next step.
 - Platform policies: Form2Offer does not bypass CAPTCHAs, anti-automation controls, or recruiting-platform rules.
 - AI endpoints: common OpenAI-style `/chat/completions` APIs are supported, but provider-specific response formats may require adaptation.
@@ -180,10 +191,17 @@ Form2Offer/
 │  ├─ answer-library.js       # Question filtering, normalization, and exact lookup
 │  ├─ job-tracker.js          # Tracking model and page-signal resolver
 │  ├─ date-utils.js           # Date parsing, projection, and numeric option matching
+│  ├─ platform-knowledge.js   # Recognition signals and notes for 38 site families
+│  ├─ fill-rules.js           # Rank buckets, month-to-day projection, byte-based length limits
+│  ├─ job-insight.js          # Job families, hard requirements, limits, resume-version advice
+│  ├─ ai-drafting.js          # Redacted summaries and prompts for open-question drafts
+│  ├─ agent-bridge.js         # Loopback settings, snapshot redaction, request boundary
+│  ├─ agent-review.*          # Agent plan review and confirmed filling
 │  ├─ project-utils.js        # Project-section, field, and bounded add-action recognition
 │  ├─ safety-policy.js        # Conservative fill policy
 │  ├─ message-policy.js       # Runtime message authorization
 │  └─ ai-privacy.js           # AI request redaction helpers
+├─ bridge/                    # Optional Local Bridge, Codex host, and MCP server
 ├─ tests/                     # Unit tests and form fixture
 ├─ scripts/                   # Logo and browser QA helpers
 ├─ docs/                      # Field, platform, and QA documentation
@@ -194,17 +212,16 @@ Form2Offer/
 
 - Site-specific rules need wider regression coverage against current recruiting pages.
 - Company and role detection depends on structured data and heuristic page signals, so users must verify records before saving.
-- Local profiles do not yet support passphrase encryption, multiple variants, or job-specific switching.
+- Local profiles do not yet support passphrase encryption; resume versions are recommended but whole-profile switching per job is not available.
 - Corrected mappings are not yet learned and reused per site.
-- Open-ended questions do not yet have a separate, review-before-send AI drafting flow.
 - There is no signed extension-store package or automatic update channel.
 
 ## Roadmap
 
 1. Add an ATS adapter catalog, anonymized page fixtures, and continuous regression tests.
 2. Learn corrected mappings locally and reuse them per domain.
-3. Support multiple profile variants and job-specific fields.
-4. Add editable, review-before-send AI drafts for open-ended questions.
+3. Switch whole profile variants and job-specific fields per application.
+4. Add structure replicas and regression scripts for more platforms.
 5. Add encrypted exports and an optional local profile vault.
 6. Complete permission and privacy review for Chrome and Edge store distribution.
 

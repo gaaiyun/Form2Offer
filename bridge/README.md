@@ -4,7 +4,7 @@ Local Bridge 是 Form2Offer 的可选本机 Agent 组件。它只监听 `127.0.0
 
 ## Windows 快速开始
 
-需要 Node.js 20+ 和可选的 Codex CLI。解压 Release 中的 `Form2Offer-Bridge-win-x64-v0.11.0.zip` 后，在 PowerShell 7 执行：
+需要 Node.js 20+ 和可选的 Codex CLI。解压 Release 中的 `Form2Offer-Bridge-win-x64-v0.13.0.zip` 后，在 PowerShell 7 执行：
 
 ```powershell
 .\start-bridge.ps1 init --resume-root "G:\MyResume" --sources "resume.md,docs\facts.md,docs\versions.md" --job-source "jobs\bank.md"
@@ -42,15 +42,20 @@ Codex CLI 可注册为：
 codex mcp add form2offer -- node "G:\path\to\Form2Offer-Bridge\bin\form2offer-bridge.js" mcp --data-dir "G:\Form2Offer\BridgeData"
 ```
 
-Work Buddy、Claude Code 或其他 MCP Client 请选择 stdio transport，并使用同一条 `node ... mcp` 命令。可用工具为：
+Work Buddy、Claude Code 或其他 MCP Client 请选择 stdio transport，并使用同一条 `node ... mcp` 命令。MCP 进程发现 Bridge 没在运行时会在后台拉起（加 `--no-autostart` 可关闭）。
 
-- `form2offer_list_sessions`
-- `form2offer_get_session`
-- `form2offer_search_resume`
-- `form2offer_submit_plan`
-- `form2offer_cancel_session`
+共 14 个工具：读浏览器表单（`list_tabs`、`read_form`、`debug_autofill`）、平台与岗位判断（`platform_guide`、`analyze_job`、`check_applied`）、任务与方案（`list_sessions`、`wait_for_session`、`get_session`、`search_resume`、`submit_plan`、`cancel_session`）、`stage_profile` 和 `bridge_status`，名称都带 `form2offer_` 前缀。用法和推荐顺序见 [本地 Agent 接入指南](../docs/AGENT_GUIDE.md)。
 
-MCP Client 负责主动领取 `awaiting_agent` 任务并提交方案。第一版不调用 Work Buddy 的私有 Electron API。
+其他命令：
+
+```powershell
+.start-bridge.ps1 configure --from settings.json        # 写入门槛画像、简历版本、投递状态文件和资料白名单
+.start-bridge.ps1 stage-profile --file profile.json --note "说明"  # 暂存底稿，由本人在扩展里导入
+.start-bridge.ps1 status
+.start-bridge.ps1 stop
+```
+
+第一版不调用 Work Buddy 的私有 Electron API。
 
 ## 安全边界
 
@@ -58,6 +63,8 @@ MCP Client 负责主动领取 `awaiting_agent` 任务并提交方案。第一版
 - Codex 自动任务使用 `codex exec --ephemeral --sandbox read-only`、独立临时目录和 JSON Schema 输出。
 - 任务完成、失败或取消后删除临时正文；状态只保存在内存中，重启 Bridge 后清空。
 - Agent 只能建议普通字段；敏感字段、声明、文件上传、验证码、按钮和最终提交不会成为可执行项。
+- 浏览器读表走本机 WebSocket，要求扩展 Origin 与配对令牌，且需本人在扩展里开启；密码、验证码、证件号码等字段的已有值一律打码。
+- 暂存底稿只能由本人在扩展里核对导入，不能替本人打开“填写证件号码”开关。
 - 方案必须在扩展审阅页由用户勾选确认后才会写入原招聘网页。
 
 运行验证：
