@@ -1,5 +1,5 @@
 (() => {
-  const SCRIPT_VERSION = "0.18.0-focus-fill";
+  const SCRIPT_VERSION = "0.19.0-beisen-phoenix";
 
   if (window.__OJAF_AUTOFILL_VERSION__ === SCRIPT_VERSION) {
     return;
@@ -77,7 +77,7 @@
       containerSelector: ".form-item.form-item--phoenix,.fields-col",
       labelSelector: ".form-item__text,.form-item__title,label",
       sectionSelector: ".form-part-head,.form-part-head-new,.head-title,[class*='form-part-title'],[class*='part-title'],[class*='module-title'],h2,h3,h4",
-      repeatItemSelector: "[class*='record-item'],[class*='experience-item'],[class*='list-item'],[class*='resume-item']",
+      repeatItemSelector: ".ux-standard-form,[class*='record-item'],[class*='experience-item'],[class*='list-item'],[class*='resume-item']",
       saveLabels: ["暂存", "保存", "确定", "完成"],
       editLabels: ["编辑", "修改", "完善"]
     },
@@ -91,7 +91,8 @@
       containerSelector: ".form-item--phoenix,.form-item,.ant-form-item,[class*='formItem'],[class*='FormItem'],[class*='field'],[class*='Field']",
       labelSelector: ".form-item__text,.form-item__title,.ant-form-item-label,label,[class*='label'],[class*='Label'],[class*='formLabel']",
       sectionSelector: ".ant-card-head-title,.ant-collapse-header,.form-section-title,[class*='sectionTitle'],[class*='module-title'],h2,h3,h4",
-      repeatItemSelector: ".ant-card,.ant-collapse-item,.resume-block,[class*='list-item'],[class*='resume-item'],[class*='record-item']",
+      // Phoenix 表单每条经历是一个 .ux-standard-form；分区标题与“添加”按钮都在它外面。
+      repeatItemSelector: ".ux-standard-form,.ant-card,.ant-collapse-item,.resume-block,[class*='list-item'],[class*='resume-item'],[class*='record-item']",
       saveLabels: ["保存", "确定", "完成"],
       editLabels: ["编辑", "修改", "完善"]
     },
@@ -324,7 +325,7 @@
     是否应届毕业生: ["是否应届生", "应届毕业生", "毕业生类型"],
     毕业年份: ["毕业年度", "毕业年", "毕业届别"],
     专业技术职称: ["技术职称", "职称"],
-    紧急联系人电话: ["紧急联系人手机", "紧急联系人手机号", "紧急联系方式"],
+    紧急联系人电话: ["紧急联系人手机", "紧急联系人手机号", "紧急联系方式", "紧急联系电话", "紧急联系人联系电话", "紧急联系人联系方式"],
     与紧急联系人关系: ["紧急联系人关系", "紧急联系人与本人关系"],
     紧急联系人单位: ["紧急联系人工作单位", "紧急联系人所在单位"],
     紧急联系人职务: ["紧急联系人职位", "紧急联系人岗位"],
@@ -2113,9 +2114,30 @@
     return role || "text";
   }
 
+  // 北森 phoenix-select 的输入框只是搜索框：已选值看占位层（去掉 --show 后显示所选文字）或多选标签。
+  function getPhoenixSelectCommittedValue(select) {
+    const tags = Array.from(select.querySelectorAll(".phoenix-select__tag"))
+      .map((tag) => normalizeText(tag.textContent || "", 60))
+      .filter(Boolean);
+    if (tags.length > 0) {
+      return tags.join("、");
+    }
+    const holder = select.querySelector(".phoenix-select__placeHolder");
+    if (holder && !/--show\b/.test(String(holder.className || ""))) {
+      const text = normalizeText(holder.textContent || "", 260);
+      return /^(请选择|请输入)$/.test(text) ? "" : text;
+    }
+    return "";
+  }
+
   function getControlCurrentValue(element) {
     if (!element) {
       return "";
+    }
+
+    const phoenixSelect = element.matches?.(".phoenix-select__input") ? element.closest(".phoenix-select") : null;
+    if (phoenixSelect) {
+      return getPhoenixSelectCommittedValue(phoenixSelect);
     }
 
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
@@ -2543,10 +2565,16 @@
     const profileUtils = globalThis.Form2OfferProfileUtils;
     const actionConfig = profileUtils?.getConfigForActionText?.(getButtonText(actionElement), "");
     const hasExplicitAction = actionConfig?.sectionKey === config?.sectionKey;
+    // 北森等站点把“添加”按钮放在最后一条记录的包裹层里：最近一层只含一条记录。
+    // 这时继续往上找第一层记录数大于 1 的祖先，碰到别的分区的“添加”按钮就停。
     let current = actionElement?.parentElement || null;
     let fallback = null;
+    let best = null;
     for (let depth = 0; current && depth < 9; depth += 1, current = current.parentElement) {
       if (current === document.body || current === document.documentElement) {
+        break;
+      }
+      if (best && containsOtherRepeatAction(current, config)) {
         break;
       }
       const evidence = getLocalSectionHeadingEvidence(current);
@@ -2555,11 +2583,30 @@
         fallback = fallback || current;
       }
       const recordCount = countKnownRepeatRecords(current, config);
-      if (recordCount > 0 && (hasExplicitAction || fallback)) {
+      if (!best && recordCount > 0 && (hasExplicitAction || fallback)) {
+        best = current;
+        if (recordCount > 1) {
+          return best;
+        }
+      } else if (best && recordCount > 1) {
         return current;
       }
     }
-    return fallback;
+    return best || fallback;
+  }
+
+  function containsOtherRepeatAction(root, config) {
+    const profileUtils = globalThis.Form2OfferProfileUtils;
+    return Array.from(root.querySelectorAll("button,[role='button'],a,span,div"))
+      .filter((control) => control.children.length <= 3)
+      .some((control) => {
+        const text = normalizeText(getButtonText(control), 100);
+        if (!text || text.length > 40 || !/^(添加|新增|继续添加)/.test(text)) {
+          return false;
+        }
+        const other = profileUtils?.getConfigForActionText?.(text, "");
+        return Boolean(other?.sectionKey && other.sectionKey !== config?.sectionKey);
+      });
   }
 
   function findKnownRepeatAddControl(config) {
@@ -4723,7 +4770,7 @@
     if (/^(姓名|姓|名|英文名|性别|出生日期|出生年月|民族|国籍|政治面貌|籍贯|户籍|户口所在地|现户口所在地|现居住地|当前居住地|当前居住地详细地址|身高|体重|血型|婚姻状况|邮箱|电子邮箱|手机号码|手机号|电话|微信|微信号|QQ|证件类型|证件号码|身份证号码|护照号码|紧急联系人|紧急联系人电话|与紧急联系人关系)$/.test(label)) {
       return "基本信息";
     }
-    if (/^(最高学历|最高全日制学历|是否最高学历|学历|学位|学校|学校名称|毕业院校|学校类别|毕业院校性质|学院|学院名称|院系|专业|专业名称|一级学科|培养方式|教育类型|学习形式|开始时间|结束时间|毕业时间|成绩|GPA|专业排名)$/.test(label)) {
+    if (/^(最高学历|最高全日制学历|是否最高学历|学历|学位|学校|学校名称|毕业院校|学校类别|毕业院校性质|学院|学院名称|院系|专业|专业名称|一级学科|培养方式|教育类型|学习形式|毕业时间|成绩|GPA|专业排名)$/.test(label)) {
       return "教育经历";
     }
     if (/^(意向岗位|目标岗位|应聘岗位|期望工作城市|期望城市|期望薪资|期望月薪|期望年薪|期望年收入|预计入职时间|预计报到时间|到岗时间|对目标公司的期望|对我公司的期望|是否接受调剂)$/.test(label)) {
@@ -4832,6 +4879,10 @@
     }
     if (/其他信息|其他个人情况|附加信息|附加问题/.test(text)) {
       return "其他信息";
+    }
+    // 光秃秃的“开始/结束时间”先看所在经历，上下文都没有时才按教育经历处理。
+    if (/^(开始时间|结束时间)$/.test(label)) {
+      return "教育经历";
     }
     return "";
   }
@@ -5501,7 +5552,7 @@
     if (/学号|学生证号/.test(key)) {
       return "studentId";
     }
-    if (/学校名称|毕业院校|院校名称/.test(key)) {
+    if (/^(学校|毕业学校)$/.test(directKey) || /学校名称|毕业院校|院校名称/.test(key)) {
       return "school";
     }
     if (/院系|学院名称/.test(key)) {
@@ -5693,7 +5744,7 @@
     if (/项目链接|项目地址|作品链接|作品地址|项目网址|成果链接/.test(key)) {
       return "projectUrl";
     }
-    if (/工作内容描述|工作内容|实践内容|职责描述/.test(key)) {
+    if (/工作内容描述|工作内容|实践内容|实习内容|实习描述|工作描述|职责描述/.test(key)) {
       return "description";
     }
     if (/奖惩解除时间|处分解除时间|解除时间/.test(key)) {
@@ -5790,6 +5841,10 @@
   function getFieldSemanticBucket(field, fieldLabel, fieldCategory) {
     const directLabel = normalizeMatchKey(fieldLabel || field?.label || "");
     const optionText = getFieldOptionLabelsText(field, 180);
+    // 单独一个“最高学历”下拉框要的是学历层次；北森等下拉框扫描时还看不到选项，不能靠选项判断。
+    if (/^(最高学历|最高全日制学历)$/.test(directLabel) && !/^(是|否)/.test(normalizeText(optionText, 10))) {
+      return directLabel === "最高全日制学历" ? "highestFullTimeEducation" : "highestEducationLevel";
+    }
     if (
       /最高学历/.test(directLabel) &&
       /大专|专科|本科|学士|硕士|研究生|博士/.test(optionText)
@@ -5818,14 +5873,13 @@
   }
 
   function getEntrySemanticBucket(entry) {
-    return getFirstSemanticBucket(
-      [
-        entry?.label,
-        entry?.subsection,
-        ...(entry?.aliases || [])
-      ],
-      entry?.category
-    );
+    const labelBucket = getFirstSemanticBucket([entry?.label, ...(entry?.aliases || [])], entry?.category);
+    if (labelBucket) {
+      return labelBucket;
+    }
+    // 子标题多是“教育经历 1 最高学历 / 本科”这样的记录名，里面的学历字样不代表这一项是学历字段。
+    const subsectionBucket = getSemanticBucket(entry?.subsection, entry?.category);
+    return /^(isHighestEducation|highestEducationLevel|highestFullTimeEducation|educationLevel|degree)$/.test(subsectionBucket) ? "" : subsectionBucket;
   }
 
   function canProjectEntryValueToFieldBucket(fieldBucket, entryBucket) {
@@ -6122,6 +6176,16 @@
 
   function isSemanticallyIncompatible(field, entry, fieldLabel, fieldCategory) {
     const profileUtils = globalThis.Form2OfferProfileUtils;
+    const fieldKey = normalizeMatchKey(fieldLabel || field?.label || "");
+    const entryValue = normalizeText(entry?.value || "", 40);
+    // 教育经历里的“最高学历：是/否”是标记，不能拿去填“最高学历”下拉框。
+    if (/^(最高学历|最高全日制学历|学历|学位)$/.test(fieldKey) && /^(是|否)$/.test(entryValue)) {
+      return true;
+    }
+    // “至今”复选框只接受“至今”，不接受具体日期。
+    if (fieldKey === "至今" && !/^(至今|今|present|now)$/i.test(entryValue)) {
+      return true;
+    }
     if (profileUtils?.isFieldValueShapeCompatible && !profileUtils.isFieldValueShapeCompatible(fieldLabel, entry?.label, entry?.value)) {
       return true;
     }
@@ -6336,7 +6400,12 @@
 
     score += getEntryCategoryBonus(fieldCategory, entry.category);
 
-    score += getOccurrenceMatchBonus(field, entry);
+    const occurrenceBonus = getOccurrenceMatchBonus(field, entry);
+    // 第 N 条记录只拿资料里第 N 条经历的值，不从别的经历借（高中没有专业，就不能填硕士的专业）。
+    if (occurrenceBonus < 0) {
+      return 0;
+    }
+    score += occurrenceBonus;
 
     if (field.required) {
       score += 2;
@@ -6575,12 +6644,16 @@
       return "";
     }
 
-    return normalizeChoiceLabel(normalizeDateValue(text))
+    // 不能复用 normalizeMatchKey：它会删掉数字，日期、电话、身高比对时都会变成空串。
+    const dateLike = /^(?:19|20)\d{2}\s*[年./-]/.test(text);
+    return (dateLike ? normalizeDateValue(text) : text)
+      .replace(/[\s|*＊:：,，.。;；()（）[\]【】<>《》"'“”‘’、．·•/\\-]/g, "")
+      .toLowerCase()
       .replace(/大学本科/g, "本科")
       .replace(/学校级/g, "校级")
       .replace(/学院级/g, "院级")
       .replace(/离异/g, "离婚")
-      .replace(/厘米|cm|CM|千克|公斤|kg|KG|万元|万/g, "");
+      .replace(/厘米|cm|千克|公斤|kg|万元|万/g, "");
   }
 
   function valuesLookEquivalent(left, right) {
@@ -6589,11 +6662,22 @@
     if (!normalizedLeft || !normalizedRight) {
       return false;
     }
-    return (
-      normalizedLeft === normalizedRight ||
-      normalizedLeft.includes(normalizedRight) ||
-      normalizedRight.includes(normalizedLeft)
-    );
+    if (normalizedLeft === normalizedRight) {
+      return true;
+    }
+    const leftDigits = normalizedLeft.replace(/\D/g, "");
+    const rightDigits = normalizedRight.replace(/\D/g, "");
+    if (leftDigits || rightDigits) {
+      // 带数字的值数字必须一致，只放过“年月 vs 年月日”和带国家码的手机号，避免 前10% ≈ 前20%。
+      const [shorter, longer] = leftDigits.length <= rightDigits.length ? [leftDigits, rightDigits] : [rightDigits, leftDigits];
+      const digitsMatch = shorter === longer ||
+        (shorter.length === 6 && longer.length === 8 && longer.startsWith(shorter)) ||
+        (shorter.length >= 7 && longer.length - shorter.length <= 4 && longer.endsWith(shorter));
+      if (!digitsMatch) {
+        return false;
+      }
+    }
+    return normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft);
   }
 
   function summarizeDebugField(field) {
@@ -7315,7 +7399,9 @@
       return checkOngoingBoxNear(element);
     }
 
-    if (candidate?.writeMode === "date") {
+    // 标签没写“时间/日期”的北森日期控件（如“毕业时间”）也按日期面板处理。
+    const phoenixDateControl = Boolean(getPhoenixDatePickerContainer(element)) && /^(?:19|20)\d{2}\s*[年./-]?\s*\d{0,2}/.test(String(value || "").trim());
+    if (candidate?.writeMode === "date" || phoenixDateControl) {
       const dateValue = adaptDateValueForControl(element, normalizeDateValue(value), candidate?.fieldLabel || field?.label || "");
       const elementDateResult = await tryFillElementDatePicker(element, dateValue);
       if (elementDateResult.handled) {
@@ -8019,6 +8105,172 @@
     return false;
   }
 
+  // —— 北森地区选择器（籍贯、期望城市）：点文字逐级下钻，点单选/复选图标选中，最后点“确定” ——
+  const AREA_PROVINCE_HINTS = {
+    广东省: "广州 深圳 珠海 汕头 佛山 韶关 湛江 肇庆 江门 茂名 惠州 梅州 汕尾 河源 阳江 清远 东莞 中山 潮州 揭阳 云浮",
+    浙江省: "杭州 宁波 温州 嘉兴 湖州 绍兴 金华 衢州 舟山 台州 丽水",
+    江苏省: "南京 无锡 徐州 常州 苏州 南通 连云港 淮安 盐城 扬州 镇江 泰州 宿迁",
+    四川省: "成都 绵阳 德阳 宜宾 南充 乐山",
+    福建省: "福州 厦门 泉州 漳州",
+    山东省: "济南 青岛 烟台 潍坊",
+    湖北省: "武汉 宜昌 襄阳",
+    湖南省: "长沙 株洲 湘潭",
+    安徽省: "合肥 芜湖",
+    河南省: "郑州",
+    陕西省: "西安",
+    江西省: "南昌",
+    河北省: "石家庄",
+    山西省: "太原",
+    辽宁省: "沈阳 大连",
+    吉林省: "长春",
+    黑龙江省: "哈尔滨",
+    云南省: "昆明",
+    贵州省: "贵阳",
+    海南省: "海口 三亚",
+    广西壮族自治区: "南宁 桂林",
+    甘肃省: "兰州"
+  };
+
+  function stripAreaSuffix(name) {
+    return normalizeText(name, 40).replace(/(特别行政区|壮族自治区|回族自治区|维吾尔自治区|自治区|自治州|地区|省|市|县|区|盟|旗)$/, "");
+  }
+
+  function areaNameMatches(name, part) {
+    const left = stripAreaSuffix(name);
+    const right = stripAreaSuffix(part);
+    return Boolean(left && right && left === right);
+  }
+
+  function splitAreaPath(value) {
+    const text = normalizeText(value, 80).replace(/[\s/>|,，、·-]+/g, "");
+    if (!text) {
+      return [];
+    }
+    return text.match(/.+?(?:特别行政区|自治区|自治州|省|地区|盟|市|区|县|旗)|.+$/g) || [text];
+  }
+
+  function guessAreaProvince(part) {
+    const key = stripAreaSuffix(part);
+    return Object.keys(AREA_PROVINCE_HINTS).find((province) => AREA_PROVINCE_HINTS[province].split(" ").includes(key)) || "";
+  }
+
+  function getVisibleAreaSelector() {
+    return Array.from(document.querySelectorAll(".area-selector-container")).find(isVisible) || null;
+  }
+
+  function getAreaItemName(item) {
+    return normalizeText(getElementText(item.querySelector(".area-text-label") || item), 40);
+  }
+
+  function fireAreaPointerClick(target) {
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      const EventType = type.startsWith("pointer") && typeof PointerEvent === "function" ? PointerEvent : MouseEvent;
+      target.dispatchEvent(new EventType(type, { bubbles: true, cancelable: true, view: window }));
+    }
+  }
+
+  async function waitForAreaChange(panel, before) {
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      await sleep(60);
+      const current = getVisibleAreaSelector();
+      if (!current) {
+        return null;
+      }
+      const snapshot = Array.from(current.querySelectorAll(".area-item-name")).map(getAreaItemName).join("|");
+      if (snapshot !== before) {
+        return current;
+      }
+    }
+    return getVisibleAreaSelector();
+  }
+
+  async function tryFillPhoenixAreaSelector(element, value) {
+    let panel = getVisibleAreaSelector();
+    if (!panel) {
+      return null;
+    }
+    const select = element?.closest?.(".phoenix-select") || null;
+    const items = () => Array.from((getVisibleAreaSelector() || panel).querySelectorAll(".area-item-name")).filter(isVisible);
+    const snapshot = () => items().map(getAreaItemName).join("|");
+    const findItem = (part) => items().find((item) => getAreaItemName(item) !== "全国" && areaNameMatches(getAreaItemName(item), part));
+    const cancel = (reason) => {
+      const cancelButton = Array.from(panel.querySelectorAll(".area-footer-button .phoenix-button__content,.area-footer-button button"))
+        .find((node) => normalizeText(getElementText(node), 10) === "取消");
+      if (cancelButton) fireAreaPointerClick(cancelButton);
+      else closeChoicePopup(element);
+      return { ok: false, reason };
+    };
+
+    let parts = splitAreaPath(value);
+    if (parts.length === 0) {
+      return cancel("地区值为空");
+    }
+    const visible = items();
+    if (!findItem(parts[0]) && visible.length === 1 && getAreaItemName(visible[0]) === "全国") {
+      const before = snapshot();
+      visible[0].querySelector(".area-text-label")?.click();
+      panel = await waitForAreaChange(panel, before) || panel;
+    }
+    if (!findItem(parts[0])) {
+      const province = guessAreaProvince(parts[0]);
+      if (province) {
+        parts = [province, ...parts];
+      }
+    }
+
+    let target = null;
+    for (let index = 0; index < parts.length; index += 1) {
+      let item = null;
+      for (let attempt = 0; attempt < 12 && !item; attempt += 1) {
+        item = findItem(parts[index]);
+        if (!item) await sleep(60);
+      }
+      if (!item) {
+        break;
+      }
+      const label = item.querySelector(".area-text-label");
+      const drillable = label && !label.classList.contains("no-hover");
+      if (index === parts.length - 1 || !drillable) {
+        target = item;
+        break;
+      }
+      const before = snapshot();
+      label.click();
+      panel = await waitForAreaChange(panel, before) || panel;
+    }
+    if (!target) {
+      return cancel(`地区选择器里找不到“${parts.join("/")}”`);
+    }
+
+    const leafName = getAreaItemName(target);
+    fireAreaPointerClick(target.querySelector(".icon-container svg") || target.querySelector(".icon-container") || target);
+    let checked = false;
+    for (let attempt = 0; attempt < 10 && !checked; attempt += 1) {
+      const fresh = items().find((item) => getAreaItemName(item) === leafName);
+      const iconClass = String(fresh?.querySelector("svg")?.className?.baseVal || fresh?.querySelector("svg")?.getAttribute?.("class") || "");
+      checked = /Checked/.test(iconClass) && !/Unchecked/.test(iconClass);
+      if (!checked) await sleep(50);
+    }
+    if (!checked) {
+      return cancel(`没能选中“${leafName}”`);
+    }
+
+    const confirm = Array.from(panel.querySelectorAll(".area-footer-button .phoenix-button__content,.area-footer-button button"))
+      .find((node) => normalizeText(getElementText(node), 10) === "确定");
+    if (!confirm) {
+      return cancel("地区选择器没有“确定”按钮");
+    }
+    fireAreaPointerClick(confirm);
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await sleep(60);
+      const committed = select ? getPhoenixSelectCommittedValue(select) : "";
+      if (committed && committed.split("、").some((name) => areaNameMatches(name, leafName))) {
+        return { ok: true };
+      }
+    }
+    return { ok: false, reason: `点了“确定”但页面没有显示“${leafName}”` };
+  }
+
   async function tryFillCustomChoiceField(element, value, field) {
     if (isCheckboxLikeControl(element)) {
       return { ok: false, reason: "复选框不是下拉选择" };
@@ -8030,6 +8282,10 @@
 
     container.scrollIntoView({ block: "center", inline: "nearest" });
     const optionRoot = await openChoicePopup(element, container);
+    const areaResult = await tryFillPhoenixAreaSelector(element, value);
+    if (areaResult) {
+      return areaResult;
+    }
 
     const rawTarget = normalizeChoiceValue(value, inferFieldLabel(field));
     const optionScope = optionRoot || document;
@@ -9437,6 +9693,10 @@
 
   const messageHandler = (message, _sender, sendResponse) => {
     if (!message || typeof message.type !== "string" || !message.type.startsWith("OJAF_")) {
+      return undefined;
+    }
+    // 扩展更新后同一页面可能被注入新版本；旧实例让位，避免两份脚本同时填写。
+    if (window.__OJAF_AUTOFILL_VERSION__ !== SCRIPT_VERSION) {
       return undefined;
     }
 

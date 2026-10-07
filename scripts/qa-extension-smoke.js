@@ -234,6 +234,8 @@ async function main() {
     headless: false,
     viewport: { width: 1440, height: 1000 },
     args: [
+      // FORM2OFFER_QA_HEADLESS=1：不弹窗口（新版无头模式也能加载扩展）。
+      ...(process.env.FORM2OFFER_QA_HEADLESS === "1" ? ["--headless=new"] : []),
       `--disable-extensions-except=${extensionDir}`,
       `--load-extension=${extensionDir}`
     ]
@@ -357,7 +359,8 @@ async function main() {
     const sensitiveRun = await runAutofill(worker, formPage);
     assert.equal(sensitiveRun.ok, true, `sensitive autofill failed: ${JSON.stringify(sensitiveRun)}`);
     const sensitiveForm = await readForm(formPage);
-    assert.equal(sensitiveForm.idNumber, "FAKE-ID-0001");
+    // 证件号码有独立开关，只开“敏感资料”时仍不填。
+    assert.equal(sensitiveForm.idNumber, "");
     assert.equal(sensitiveForm.emergencyContact, "示例联系人");
     assert.equal(sensitiveForm.backgroundCheck, "");
     assert.equal(sensitiveForm.submitCount, 0);
@@ -365,12 +368,14 @@ async function main() {
     await setFillPolicy(worker, {
       overwriteExisting: false,
       fillSensitive: true,
-      fillDeclarations: true
+      fillDeclarations: true,
+      fillIdentity: true
     });
     const declarationRun = await runAutofill(worker, formPage);
     assert.equal(declarationRun.ok, true, `declaration autofill failed: ${JSON.stringify(declarationRun)}`);
     const declarationForm = await readForm(formPage);
     assert.equal(declarationForm.backgroundCheck, "是");
+    assert.equal(declarationForm.idNumber, "FAKE-ID-0001");
     assert.equal(declarationForm.submitCount, 0);
 
     await setFillPolicy(worker, {

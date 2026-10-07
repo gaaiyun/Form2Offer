@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>北森 Phoenix 网申表单（结构复刻）</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; background: #f5f6f7; }
+  .sc-caiLqq { max-width: 1100px; margin: 0 auto; background: #fff; padding: 16px 40px 80px; }
+  .sc-iAKWXU { padding: 16px 0; border-bottom: 1px solid #eee; }
+  .sc-efQSVx { font-size: 20px; font-weight: 600; margin: 8px 0 16px; }
+  .fields-row { display: flex; gap: 32px; margin-bottom: 14px; }
+  .fields-col { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+  .form-item { display: flex; align-items: center; flex: 1; }
+  .form-item__title { width: 110px; text-align: right; padding-right: 12px; color: #555; }
+  .form-item__required { color: #c00; margin-right: 2px; }
+  .form-item__control { flex: 1; }
+  .phoenix-input__input, .phoenix-textarea__realTextarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
+  .phoenix-textarea__realTextarea { min-height: 80px; }
+  .phoenix-select { position: relative; border: 1px solid #ccc; border-radius: 4px; min-height: 32px; padding: 0 8px; display: flex; align-items: center; cursor: pointer; }
+  .phoenix-select__calcEle { display: none; }
+  .phoenix-select__placeHolder { color: #999; }
+  .phoenix-select__placeHolder--filled { color: #222; }
+  .phoenix-select__content { list-style: none; margin: 0; padding: 0; position: absolute; inset: 0; }
+  .phoenix-select__input { width: 100%; height: 26px; border: 0; background: transparent; cursor: pointer; color: transparent; }
+  .phoenix-select__switchArrow { margin-left: auto; width: 14px; height: 14px; }
+  .phoenix-radio-group { display: flex; gap: 24px; }
+  .phoenix-radio { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .phoenix-radio__circle-wrapper { width: 14px; height: 14px; border: 1px solid #999; border-radius: 50%; }
+  .phoenix-radio--checked .phoenix-radio__circle-wrapper { background: #c00; }
+  .common-unmodeled-layer { position: absolute; z-index: 1000; background: #fff; border: 1px solid #ccc; box-shadow: 0 4px 12px rgba(0,0,0,.15); min-width: 240px; }
+  .phoenix-selectList__listItem, .area-item-name { padding: 4px 10px; cursor: pointer; }
+  .phoenix-calendar-month-panel-cell, .phoenix-calendar-cell { display: inline-block; width: 40px; text-align: center; cursor: pointer; }
+  .sc-lbhJGD { color: #c00; cursor: pointer; margin-top: 8px; }
+  .sc-jgrJph { text-align: right; color: #666; }
+  .upload { color: #c00; }
+</style>
+</head>
+<body>
+<!-- 按万联证券北森租户（wlzq.zhiye.com）实测 DOM 复刻：styled-components 随机类名、分区标题不在 h 标签里、
+     “添加经历”按钮放在最后一条记录的包裹层内、日期是带月份面板的 phoenix-select、籍贯/城市是逐级地区选择器。 -->
+<div class="sc-jcFjpl"><div class="sc-iUKqMP"><div class="sc-caiLqq oRfpp" id="app"></div></div></div>
+<script>
+(function () {
+  const DATE_ICON = '<svg class="date-icon"><use xlink:href="#prefix__a_field_date_time_picker"></use></svg>';
+  const ARROW_ICON = '<svg class="arrow-icon"><use xlink:href="#prefix__a_arrow_down"></use></svg>';
+  const AREA = {
+    "全国": ["北京市", "上海市", "广东省", "湖南省"],
+    "广东省": ["广州市", "深圳市", "佛山市", "肇庆市"],
+    "广州市": ["天河区", "越秀区", "番禺区"],
+    "佛山市": ["顺德区", "南海区", "禅城区"],
+    "肇庆市": ["端州区", "鼎湖区", "广宁县", "怀集县", "封开县", "德庆县", "高要区", "四会市"],
+    "深圳市": ["南山区", "福田区"],
+    "湖南省": ["长沙市"],
+    "长沙市": ["岳麓区"]
+  };
+  const OPTIONS = {
+    "政治面貌": ["中共党员", "中共预备党员", "共青团员", "群众"],
+    "学习形式": ["全国普通高等院校全日制", "非全日制", "自考"],
+    "最高学历": ["小学", "初中", "高中", "大专", "本科", "硕士研究生", "MBA", "博士研究生"],
+    "学历": ["高中", "中专", "大专", "本科", "硕士研究生", "博士研究生"]
+  };
+
+  function title(label, required) {
+    return `<div class="form-item__title form-item__title--right">${required ? '<a class="form-item__required"><i class="icon-cus-bitian">*</i></a>' : ""}<label class="form-item__text">${label}</label></div>`;
+  }
+  function control(kind, label) {
+    if (kind === "input") {
+      return `<div class="phoenix-input"><input class="phoenix-input__input phoenix-input__input--sizeLarge" type="text" placeholder="请输入" spellcheck="false"></div>`;
+    }
+    if (kind === "textarea") {
+      return `<div class="phoenix-textarea phoenix-textarea--hasBottomBar"><textarea class="phoenix-textarea__realTextarea phoenix-textarea__realTextarea--large" placeholder="请输入" spellcheck="false"></textarea><div class="phoenix-textarea__bottomBar"><span class="phoenix-textarea__barItem"><span class="phoenix-textarea__currentCount">0</span>/2000</span></div></div>`;
+    }
+    if (kind === "radio") {
+      const options = label === "性别" ? ["男", "女", "保密"] : ["应届", "往届"];
+      return `<div class="phoenix-radio-group">${options.map((option) => `<div class="phoenix-radio-group__radioItem"><div class="phoenix-radio phoenix-radio--withLabel phoenix-radio-group__radio"><div class="phoenix-radio__wrapper"><div class="phoenix-radio__circle-wrapper"><div class="phoenix-radio__circle"></div></div><span class="phoenix-radio__radio-text">${option}</span></div></div></div>`).join("")}</div>`;
+    }
+    if (kind === "upload") {
+      return `<div class="upload"><span>上传文件</span></div>`;
+    }
+    const icon = kind === "month" || kind === "day" ? DATE_ICON : ARROW_ICON;
+    return `<div class="phoenix-unmodeled-layer block"><div class="phoenix-unmodeled-layer__inner"><div class="phoenix-unmodeled-layer__protect"><div class="phoenix-unmodeled-layer__content phoenix-unmodeled-layer__content--block"><div class="phoenix-select phoenix-select--editable phoenix-select--large" data-kind="${kind}" data-label="${label}"><span class="phoenix-select__calcEle"></span><div class="phoenix-select__placeHolder phoenix-select__placeHolder--large phoenix-select__placeHolder--show">请选择</div><ul class="phoenix-select__content"><li class="phoenix-select__inputWrapper phoenix-select__inputWrapper--emptyMultiValue"><input placeholder="" class="phoenix-select__input phoenix-select__input--large phoenix-select__input--unText"></li></ul><div class="phoenix-select__switchArrow">${icon}</div></div></div></div></div></div>`;
+  }
+  function item(field) {
+    const [label, kind, required = true] = field;
+    const formItem = `<div class="form-item form-item--phoenix">${title(label, required)}<div class="form-item__control">${control(kind, label)}</div></div>`;
+    if (label === "结束时间") {
+      return `<div class="fields-col"><div class="sc-jOxtWs bYDiJu"><div class="sc-hmjpVf dRmGXI">${formItem}</div><div class="sc-eLwHnm cfgND"><div class="phoenix-checkbox"><span class="phoenix-checkbox__box"><input type="checkbox" class="phoenix-checkbox__input"><span class="phoenix-checkbox__realInput"></span></span><span class="phoenix-checkbox__text color-M3">至今</span></div></div></div></div>`;
+    }
+    return `<div class="fields-col">${formItem}</div>`;
+  }
+  function rows(fields) {
+    const out = [];
+    for (let i = 0; i < fields.length; i += 2) {
+      out.push(`<div class="fields-row field-two clearfix">${item(fields[i])}${fields[i + 1] ? item(fields[i + 1]) : ""}</div>`);
+    }
+    return out.join("");
+  }
+  function form(parts) {
+    return `<div class="ux-standard-form"><div class="form twoLineFormStyleLong formStyleLeftAndRight">${parts.map((fields) => `<div class="form-part false space-large size-large align-right"><div class="form-part-body clearfix false">${rows(fields)}</div></div>`).join("")}</div></div>`;
+  }
+  function section(name, body) {
+    return `<div class="sc-iAKWXU eSNZXI"><div class="sc-efQSVx eAPYIl">${name}</div>${body}</div>`;
+  }
+
+  const REPEATS = {
+    education: { title: "教育经历", add: "添加教育经历", parts: [[["学校名称", "input"], ["专业名称", "input"], ["学历", "select"], ["开始时间", "month"], ["结束时间", "month"]]] },
+    internship: { title: "实习经历", add: "添加实习经历", parts: [[["单位名称", "input"], ["职位名称", "input"], ["开始时间", "month"], ["结束时间", "month"]], [["实习内容", "textarea", false]]] }
+  };
+  const recordCounts = { education: 1, internship: 1 };
+
+  function renderRepeat(key) {
+    const config = REPEATS[key];
+    const count = recordCounts[key];
+    let html = "";
+    for (let i = 0; i < count; i += 1) {
+      const last = i === count - 1;
+      html += `<div class="sc-AjmGg ${last ? "dyvPlo" : "ebfZZH"}" data-record="${key}-${i}"><div class="sc-khQegj knJABc"><div class="sc-hUpaCq efCsKb">${form(config.parts)}</div><div class="sc-jgrJph hEQZvG">删除</div></div>${last ? `<div id="${key}_Recruitment_extPerfect_addButton" class="sc-lbhJGD hkOImF" data-add="${key}"><div class="sc-iNGGcK jMYpPT"><span class="sc-jeraig YMZQf">${config.add}</span></div></div>` : ""}</div>`;
+    }
+    return section(config.title, `<div class="sc-cTAqQK hiShHd" data-repeat="${key}">${html}</div>`);
+  }
+
+  const app = document.getElementById("app");
+  app.innerHTML = [
+    section("上传简历", '<div class="upload">拖拽或点击上传简历，我们帮你快速解析~</div>'),
+    section("个人信息", form([[
+      ["姓名", "input"], ["手机号码", "input"], ["邮箱", "input"], ["性别", "radio"],
+      ["出生日期", "day"], ["证件号码", "input"], ["证件照", "upload"], ["紧急联系人", "input"],
+      ["紧急联系电话", "input"], ["身高(厘米)", "input"], ["体重(公斤)", "input"], ["政治面貌", "select"],
+      ["应届/往届", "radio"], ["毕业时间", "month"], ["学习形式", "select"], ["最高学历", "select"],
+      ["籍贯", "area"]
+    ]])),
+    section("求职意向", form([[["期望工作城市", "area-multi"], ["到岗实习时间", "day"]]])),
+    `<div data-slot="education">${renderRepeat("education")}</div>`,
+    section("简历附件", form([[["简历附件", "upload"]]])),
+    `<div data-slot="internship">${renderRepeat("internship")}</div>`
+  ].join("");
+
+  // 增加一条记录时只追加新节点，保留已填内容（与真实页面一致）。
+  app.addEventListener("click", (event) => {
+    const add = event.target.closest("[data-add]");
+    if (!add) return;
+    const key = add.getAttribute("data-add");
+    const container = app.querySelector(`[data-repeat="${key}"]`);
+    const lastWrapper = container.lastElementChild;
+    add.remove();
+    lastWrapper.classList.replace("dyvPlo", "ebfZZH");
+    recordCounts[key] += 1;
+    const temp = document.createElement("div");
+    temp.innerHTML = renderRepeat(key);
+    const fresh = temp.querySelector(`[data-repeat="${key}"]`).lastElementChild;
+    container.appendChild(fresh);
+  });
+
+  // —— 单选：只有点内层 .phoenix-radio 才生效 ——
+  app.addEventListener("click", (event) => {
+    const radio = event.target.closest(".phoenix-radio");
+    if (!radio) return;
+    const group = radio.closest(".phoenix-radio-group");
+    group.querySelectorAll(".phoenix-radio").forEach((node) => {
+      node.classList.toggle("phoenix-radio--checked", node === radio);
+      node.querySelector(".phoenix-radio__circle-wrapper").classList.toggle("phoenix-radio__circle-wrapper--checked", node === radio);
+    });
+  });
+
+  // —— 至今 ——
+  app.addEventListener("change", (event) => {
+    const box = event.target.closest(".phoenix-checkbox__input");
+    if (!box) return;
+    box.closest(".phoenix-checkbox").classList.toggle("phoenix-checkbox--checked", box.checked);
+  });
+
+  // —— 弹层 ——
+  let layer = null;
+  function closeLayer() {
+    if (layer) layer.remove();
+    layer = null;
+  }
+  function openLayer(select, html) {
+    closeLayer();
+    layer = document.createElement("div");
+    layer.className = "common-unmodeled-layer common-unmodeled-layer-placement-bottomLeft";
+    layer.innerHTML = `<div class="common-unmodeled-layer__layerContent">${html}</div>`;
+    const rect = select.getBoundingClientRect();
+    layer.style.left = `${rect.left + window.scrollX}px`;
+    layer.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    document.body.appendChild(layer);
+    layer.__select = select;
+    return layer;
+  }
+  function setSelectValue(select, text) {
+    const holder = select.querySelector(".phoenix-select__placeHolder");
+    holder.classList.remove("phoenix-select__placeHolder--show");
+    select.dataset.value = text;
+    if (select.dataset.kind === "area-multi") {
+      // 多选提交后输入框被标签替换，占位层仍是“请选择”但去掉 --show（与真实页面一致）。
+      select.classList.add("phoenix-select--exsitMultiValue");
+      select.querySelector(".phoenix-select__content").innerHTML = `<li class="phoenix-select__tagItem"><span class="phoenix-select__tag">${text}</span><span class="phoenix-select__tagIcon"></span></li>`;
+      return;
+    }
+    select.querySelector(".phoenix-select__calcEle").textContent = text;
+    holder.textContent = text;
+    holder.classList.add("phoenix-select__placeHolder--filled");
+    select.querySelector(".phoenix-select__input").value = text;
+  }
+
+  function monthPanel(year) {
+    return `<div class="phoenix-calendar phoenix-calendar-month-calendar"><div class="phoenix-calendar-month-panel"><div class="phoenix-calendar-month-panel-header"><a class="phoenix-calendar-month-panel-prev-year-btn">«</a><a class="phoenix-calendar-month-panel-year-select">${year}</a><a class="phoenix-calendar-month-panel-next-year-btn">»</a></div><div class="phoenix-calendar-month-panel-body">${Array.from({ length: 12 }, (_, i) => `<span class="phoenix-calendar-month-panel-cell" data-month="${i + 1}">${i + 1}月</span>`).join("")}</div></div></div>`;
+  }
+  function dayPanel(year, month) {
+    const days = new Date(year, month, 0).getDate();
+    let cells = "";
+    for (let d = 1; d <= days; d += 1) cells += `<td class="phoenix-calendar-cell"><div class="phoenix-calendar-date" aria-disabled="false">${d}</div></td>`;
+    return `<div class="phoenix-calendar"><div class="phoenix-calendar-panel"><div class="phoenix-calendar-date-panel"><div class="phoenix-calendar-header"><div><a class="phoenix-calendar-prev-year-btn">«</a><a class="phoenix-calendar-prev-month-btn">‹</a><span class="phoenix-calendar-ym-select"><a class="phoenix-calendar-year-select">${year}年</a><a class="phoenix-calendar-month-select">${month}月</a></span><a class="phoenix-calendar-next-month-btn">›</a><a class="phoenix-calendar-next-year-btn">»</a></div></div><div class="phoenix-calendar-body"><table class="phoenix-calendar-table"><tbody><tr>${cells}</tr></tbody></table></div></div></div></div>`;
+  }
+  function areaPanel(path) {
+    const node = path.at(-1);
+    const children = AREA[node] || [];
+    return `<div class="area-selector-container"><div class="area-search-input"><div class="phoenix-input phoenix-search"><input class="phoenix-input__input phoenix-input__input--hasPrefix" type="text" placeholder="搜索"></div></div><div class="content-container"><div class="left-container"><div><div class="area-tab-list"><span class="area-tab-item active">全国</span></div><div class="area-breadcrumb-list"><div class="phoenix-breadcrumb">${path.map((p) => `<div class="phoenix-breadcrumb-item"><span class="phoenix-breadcrumb-link"><span class="phoenix-breadcrumb-text">${p === "全国" ? "全部省市" : p}</span></span></div>`).join("")}</div></div></div><div class="area-data-container"><div class="area-item-container">${(path.length === 1 && node === "全国" && !layer?.__drilled ? ["全国"] : children).map((name) => `<div class="area-item-name" data-name="${name}"><span class="icon-container visible"><svg class="area-icon-${layer?.__multi ? "Checkbox" : "Radio"}Unchecked"><g><path d="M0 0"></path></g></svg></span><span class="area-text-label${AREA[name] ? "" : " no-hover"}">${name}</span></div>`).join("")}</div></div></div><div class="right-container">已选地区<span class="area-picked">0</span>/${layer?.__multi ? 99 : 1}</div></div><div class="area-footer-button"><div class="phoenix-button"><div class="phoenix-button__content">取消</div></div><div class="phoenix-button"><div class="phoenix-button__content">确定</div></div></div></div>`;
+  }
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    // 选择框触发
+    const input = target.closest?.(".phoenix-select__input");
+    if (input && !layer?.contains(input)) {
+      const select = input.closest(".phoenix-select");
+      const kind = select.dataset.kind;
+      const label = select.dataset.label;
+      if (kind === "select") {
+        openLayer(select, `<div class="phoenix-selectList phoenix-selectList--search"><ul class="phoenix-selectList__list"><div class="phoenix-selectList__virtualList"><div class="phoenix-selectList__virtualList-holder"><div><div class="phoenix-selectList__virtualList-holder-inner">${(OPTIONS[label] || []).map((option) => `<li class="phoenix-selectList__listItem"><div class="phoenix-selectList__singleLabel"><span><span class="">${option}</span></span></div></li>`).join("")}</div></div></div></div></ul></div>`);
+      } else if (kind === "month") {
+        const current = select.dataset.value || "";
+        openLayer(select, monthPanel(Number(current.slice(0, 4)) || 2026));
+      } else if (kind === "day") {
+        openLayer(select, dayPanel(2026, 10));
+        layer.__ym = [2026, 10];
+      } else if (kind === "area" || kind === "area-multi") {
+        openLayer(select, "");
+        layer.__multi = kind === "area-multi";
+        layer.querySelector(".common-unmodeled-layer__layerContent").innerHTML = areaPanel(["全国"]);
+        layer.__path = ["全国"];
+        layer.__picked = "";
+      }
+      return;
+    }
+    if (!layer || !layer.contains(target)) {
+      if (layer && !target.closest?.(".phoenix-select")) closeLayer();
+      return;
+    }
+    const select = layer.__select;
+    const listItem = target.closest(".phoenix-selectList__listItem");
+    if (listItem) {
+      setSelectValue(select, listItem.textContent.trim());
+      closeLayer();
+      return;
+    }
+    // 月份面板
+    const yearText = layer.querySelector(".phoenix-calendar-month-panel-year-select");
+    if (yearText) {
+      if (target.closest(".phoenix-calendar-month-panel-prev-year-btn")) yearText.textContent = String(Number(yearText.textContent) - 1);
+      if (target.closest(".phoenix-calendar-month-panel-next-year-btn")) yearText.textContent = String(Number(yearText.textContent) + 1);
+      const cell = target.closest(".phoenix-calendar-month-panel-cell");
+      if (cell) {
+        setSelectValue(select, `${yearText.textContent}-${String(cell.dataset.month).padStart(2, "0")}`);
+        closeLayer();
+      }
+      return;
+    }
+    // 日历
+    if (layer.__ym) {
+      let [year, month] = layer.__ym;
+      if (target.closest(".phoenix-calendar-prev-year-btn")) year -= 1;
+      if (target.closest(".phoenix-calendar-next-year-btn")) year += 1;
+      if (target.closest(".phoenix-calendar-prev-month-btn")) { month -= 1; if (month < 1) { month = 12; year -= 1; } }
+      if (target.closest(".phoenix-calendar-next-month-btn")) { month += 1; if (month > 12) { month = 1; year += 1; } }
+      const day = target.closest(".phoenix-calendar-date");
+      if (day) {
+        setSelectValue(select, `${year}-${String(month).padStart(2, "0")}-${String(day.textContent).padStart(2, "0")}`);
+        closeLayer();
+        return;
+      }
+      if (year !== layer.__ym[0] || month !== layer.__ym[1]) {
+        layer.__ym = [year, month];
+        layer.querySelector(".common-unmodeled-layer__layerContent").innerHTML = dayPanel(year, month);
+      }
+      return;
+    }
+    // 地区选择器：点文字下钻，点单选图标选中，点“确定”写回
+    if (layer.__path) {
+      const label = target.closest(".area-text-label");
+      if (label && !label.classList.contains("no-hover")) {
+        const name = label.textContent.trim();
+        if (name === "全国") layer.__drilled = true;
+        else layer.__path = [...layer.__path, name];
+        layer.querySelector(".common-unmodeled-layer__layerContent").innerHTML = areaPanel(layer.__path);
+        return;
+      }
+      const button = target.closest(".phoenix-button__content");
+      if (button) {
+        if (button.textContent.trim() === "确定" && layer.__picked) setSelectValue(select, layer.__picked);
+        closeLayer();
+      }
+    }
+  }, true);
+
+  // 地区单选图标是 svg，只响应指针事件（真实页面上 svg 没有 .click()）。
+  document.addEventListener("pointerdown", (event) => {
+    if (!layer?.__path) return;
+    const icon = event.target.closest?.(".icon-container svg, .icon-container");
+    if (!icon) return;
+    const itemNode = icon.closest(".area-item-name");
+    layer.__picked = itemNode.dataset.name;
+    layer.querySelectorAll(".area-item-name svg").forEach((svg) => svg.setAttribute("class", `area-icon-${layer.__multi ? "Checkbox" : "Radio"}${svg.closest(".area-item-name") === itemNode ? "Checked" : "Unchecked"}`));
+    layer.querySelector(".area-picked").textContent = "1";
+  }, true);
+})();
+</script>
+</body>
+</html>
