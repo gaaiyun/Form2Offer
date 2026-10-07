@@ -35,7 +35,9 @@ test("resolves the Windows npm Codex shim to Node and its real JS entrypoint", {
 });
 
 test("runs Codex with read-only ephemeral arguments and parses schema output", async () => {
-  const dataDir = fs.mkdtempSync(path.join(__dirname, "..", "..", "output", "bridge-tests", "codex-"));
+  const outputRoot = path.join(__dirname, "..", "..", "output", "bridge-tests");
+  fs.mkdirSync(outputRoot, { recursive: true });
+  const dataDir = fs.mkdtempSync(path.join(outputRoot, "codex-"));
   let captured = null;
   const spawnImpl = (command, args, options) => {
     captured = { command, args, options };
