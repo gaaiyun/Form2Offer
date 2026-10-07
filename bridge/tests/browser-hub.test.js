@@ -6,6 +6,8 @@ const { SessionStore } = require("../src/session-store.js");
 const { hashToken } = require("../src/security.js");
 
 const EXTENSION_ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+// 模拟扩展要用内置 WebSocket 客户端，Node 22 才有；Node 20 下跳过（服务端握手是自己实现的，不受影响）。
+const NEEDS_WS_CLIENT = { skip: typeof WebSocket === "undefined" ? "当前 Node 没有内置 WebSocket 客户端" : false };
 const BROWSER_TOKEN = "browser-token";
 const MCP_TOKEN = "mcp-token";
 
@@ -83,7 +85,7 @@ function connectFakeExtension(port, call, { token = BROWSER_TOKEN } = {}) {
   return { socket, ready, events };
 }
 
-test("an agent can list tabs and read the browser form through the paired extension", async () => {
+test("an agent can list tabs and read the browser form through the paired extension", NEEDS_WS_CLIENT, async () => {
   const { bridge, call, port } = await startBridge();
   const extension = connectFakeExtension(port, call);
   try {
@@ -128,7 +130,7 @@ test("browser routes require an agent token and a connected extension", async ()
   }
 });
 
-test("sockets without a valid pairing token are closed", async () => {
+test("sockets without a valid pairing token are closed", NEEDS_WS_CLIENT, async () => {
   const { bridge, call, port } = await startBridge();
   const extension = connectFakeExtension(port, call, { token: "wrong" });
   try {
