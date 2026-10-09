@@ -42,7 +42,10 @@ class ExtensionConnection {
     this.lastSeen = Date.now();
     this.pending = new Map();
     this.closed = false;
-    this.authTimer = setTimeout(() => this.close(4001, "auth timeout"), AUTH_TIMEOUT_MS);
+    this.authTimer = setTimeout(() => {
+      this.hub.recordRejection("扩展连上后没有发送配对令牌（超时）");
+      this.close(4001, "auth timeout");
+    }, AUTH_TIMEOUT_MS);
     this.pingTimer = setInterval(() => this.sendJson({ type: "ping", at: Date.now() }), PING_INTERVAL_MS);
     socket.on("data", (chunk) => this.onData(chunk));
     socket.on("close", () => this.onClose());
@@ -122,6 +125,7 @@ class ExtensionConnection {
         this.sendJson({ type: "ready", version: this.hub.version });
         this.hub.onAuthenticated(this);
       } else {
+        this.hub.recordRejection(message?.token ? "扩展的配对令牌不在本机 Bridge 的白名单里" : "扩展没有配对令牌");
         this.close(4003, "unauthorized");
       }
       return;
@@ -201,6 +205,12 @@ class BrowserHub {
     this.version = options.version || "";
     this.connections = new Set();
     this.waiters = new Set();
+    this.lastRejection = null;
+  }
+
+  // 连不上时最难排查：记下最近一次拒绝的原因，bridge_status 会带出来。
+  recordRejection(reason, origin = "") {
+    this.lastRejection = { at: new Date().toISOString(), reason, ...(origin ? { origin: origin.slice(0, 80) } : {}) };
   }
 
   isValidBrowserToken(token) {
@@ -213,6 +223,7 @@ class BrowserHub {
     const key = String(request.headers["sec-websocket-key"] || "");
     const pathname = String(request.url || "").split("?")[0];
     if (pathname !== "/v1/ws" || !key || !isAllowedExtensionOrigin(origin) || String(request.headers.upgrade || "").toLowerCase() !== "websocket") {
+      this.recordRejection(!isAllowedExtensionOrigin(origin) ? "握手来源不是浏览器扩展" : "不是有效的 WebSocket 握手", origin);
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       return;
     }
@@ -280,7 +291,8 @@ class BrowserHub {
       connections: this.connections.size,
       connectedAt: connection?.connectedAt || "",
       lastSeen: connection ? new Date(connection.lastSeen).toISOString() : "",
-      ...(connection ? connection.info : {})
+      ...(connection ? connection.info : {}),
+      ...(!connection && this.lastRejection ? { lastRejection: this.lastRejection } : {})
     };
   }
 
