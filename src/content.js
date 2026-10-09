@@ -8946,6 +8946,8 @@
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
     element.dispatchEvent(new Event("blur", { bubbles: true }));
+    // 北森 Phoenix 在 focusout 时才把文本写进表单数据；后台标签页里 element.blur() 不会触发它。
+    element.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
   }
 
   function setCheckboxOrRadio(element, value) {
